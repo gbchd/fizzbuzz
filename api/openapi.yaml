@@ -33,8 +33,9 @@ paths:
       operationId: getDocumentation
       summary: Browsable API reference
       description: |
-        Returns a self-contained HTML reference page rendered from this
-        document. It loads nothing from the network.
+        Returns an HTML reference page rendered from this document. The document
+        itself is inlined; the Redoc renderer is loaded from a CDN, so a browser
+        with no network access sees an unrendered page.
       responses:
         '200':
           description: The reference page.
