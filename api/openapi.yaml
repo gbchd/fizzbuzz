@@ -79,6 +79,23 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /statistics:
+    get:
+      operationId: getStatistics
+      summary: The most frequently requested /fizzbuzz Query
+      description: |
+        Returns the parameters and Hit count of the most-used /fizzbuzz Query
+        recorded so far.
+      responses:
+        '200':
+          description: The most frequent Query and its Hit count.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Statistics'
+        '404':
+          $ref: '#/components/responses/NotFound'
+
   /fizzbuzz:
     post:
       operationId: postFizzbuzz
@@ -163,6 +180,22 @@ components:
         - '4'
         - buzz
 
+    Statistics:
+      type: object
+      description: |
+        The most-requested /fizzbuzz Query recorded so far, and how many times
+        it has been requested.
+      required:
+        - request
+        - hits
+      properties:
+        request:
+          $ref: '#/components/schemas/FizzbuzzRequest'
+        hits:
+          type: integer
+          description: How many times this exact Query has been requested.
+          example: 4
+
     Health:
       type: object
       required:
@@ -207,6 +240,13 @@ components:
 
     ServiceUnavailable:
       description: The process is shutting down and is not taking new traffic.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    NotFound:
+      description: Nothing matches the request.
       content:
         application/json:
           schema:

@@ -16,7 +16,9 @@ import (
 	"github.com/gbchd/fizzbuzz/internal/config"
 	"github.com/gbchd/fizzbuzz/internal/handler"
 	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
+	"github.com/gbchd/fizzbuzz/internal/repository/stats/statsmemory"
 	"github.com/gbchd/fizzbuzz/internal/service/fizzbuzz"
+	"github.com/gbchd/fizzbuzz/internal/service/statistics"
 )
 
 // Bound how long one connection can hold resources. Constants, not config:
@@ -56,7 +58,9 @@ func run(ctx context.Context) error {
 	var shuttingDown atomic.Bool
 	isReady := func() bool { return !shuttingDown.Load() }
 
-	h, err := handler.New(fizzbuzz.NewService(), isReady)
+	svc := statistics.NewRecorder(fizzbuzz.NewService(), statsmemory.New())
+
+	h, err := handler.New(svc, svc, isReady)
 	if err != nil {
 		return fmt.Errorf("init handler: %w", err)
 	}

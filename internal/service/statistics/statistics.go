@@ -1,6 +1,9 @@
 package statistics
 
-import "errors"
+import (
+	"errors"
+	"fmt"
+)
 
 var ErrNoHits = errors.New("no hits recorded yet")
 
@@ -37,10 +40,19 @@ func NewRecorder(inner FizzBuzzService, repo Repository) *Service {
 func (r *Service) FizzBuzz(int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error) {
 	sequence, err := r.inner.FizzBuzz(int1, str1, int2, str2, limit)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("statistics: %w", err)
 	}
 
 	r.repo.Record(Query{Int1: int1, Str1: str1, Int2: int2, Str2: str2, Limit: limit})
 
 	return sequence, nil
+}
+
+func (r *Service) Top() (Query, int, error) {
+	query, hits, err := r.repo.Top()
+	if err != nil {
+		return Query{}, 0, fmt.Errorf("statistics: %w", err)
+	}
+
+	return query, hits, nil
 }
