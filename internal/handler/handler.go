@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync/atomic"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"
@@ -33,16 +32,6 @@ const (
 //go:embed documentation.gen.html
 var documentationHTML string
 
-// isShuttingDown is read by GET /readyz. Package-level rather than a field, so
-// the entrypoint can flip it on a signal without holding the assembled handler.
-var isShuttingDown atomic.Bool
-
-// BeginShutdown makes GET /readyz report 503, so a load balancer stops routing
-// new requests. Call it when the shutdown signal arrives, before draining.
-func BeginShutdown() {
-	isShuttingDown.Store(true)
-}
-
 // FizzBuzzService is declared here rather than in the domain, so the domain
 // stays unaware of transport and a test can substitute a stub.
 type FizzBuzzService interface {
@@ -51,7 +40,10 @@ type FizzBuzzService interface {
 
 // New assembles the whole request path into one http.Handler. Building the
 // chain in one place is what keeps its order defined once.
-func New(svc FizzBuzzService) (http.Handler, error) {
+//
+// isReady is what GET /readyz reports. Injected rather than held here, so
+// lifecycle state stays with the entrypoint that owns the shutdown signal.
+func New(svc FizzBuzzService, isReady func() bool) (http.Handler, error) {
 	spec, err := GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("handler: load embedded spec: %w", err)
@@ -72,7 +64,7 @@ func New(svc FizzBuzzService) (http.Handler, error) {
 	openapi3.SchemaErrorDetailsDisabled = true
 
 	strict := NewStrictHandlerWithOptions(
-		&server{svc: svc, definition: definition},
+		&server{svc: svc, definition: definition, isReady: isReady},
 		nil,
 		StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  undecodableRequest,
@@ -99,6 +91,7 @@ func New(svc FizzBuzzService) (http.Handler, error) {
 type server struct {
 	svc        FizzBuzzService
 	definition map[string]any
+	isReady    func() bool
 }
 
 func (s *server) PostFizzbuzz(_ context.Context, request PostFizzbuzzRequestObject) (PostFizzbuzzResponseObject, error) {
@@ -110,6 +103,10 @@ func (s *server) PostFizzbuzz(_ context.Context, request PostFizzbuzzRequestObje
 		// here means document and domain have diverged — our defect, not theirs.
 		return nil, fmt.Errorf("generate sequence: %w", err)
 	}
+	if sequence == nil {
+		// The document declares an array; a nil slice would encode as null.
+		sequence = []string{}
+	}
 
 	return PostFizzbuzz200JSONResponse(sequence), nil
 }
@@ -119,7 +116,7 @@ func (s *server) GetHealthz(_ context.Context, _ GetHealthzRequestObject) (GetHe
 }
 
 func (s *server) GetReadyz(_ context.Context, _ GetReadyzRequestObject) (GetReadyzResponseObject, error) {
-	if isShuttingDown.Load() {
+	if !s.isReady() {
 		return GetReadyz503JSONResponse{ServiceUnavailableJSONResponse{Message: "shutting down"}}, nil
 	}
 
@@ -170,7 +167,9 @@ func validationFailed(
 }
 
 // undecodableRequest keeps the error shape uniform for a body the generated
-// server cannot unmarshal. Validation rejects these first in practice.
+// server cannot unmarshal. Validation catches most of these first, but not a
+// number that satisfies the schema and still overflows the Go type it decodes
+// into.
 func undecodableRequest(w http.ResponseWriter, r *http.Request, err error) {
 	writeError(w, http.StatusBadRequest, firstLine(err.Error()))
 	slogx.FromCtx(r.Context()).WarnContext(r.Context(), "undecodable request body", slog.Any("error", err))

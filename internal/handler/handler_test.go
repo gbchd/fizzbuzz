@@ -2,21 +2,14 @@ package handler_test
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strconv"
 	"strings"
-	"sync"
 	"testing"
-	"time"
-
-	"github.com/google/uuid"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -26,17 +19,35 @@ import (
 	"github.com/gbchd/fizzbuzz/internal/service/fizzbuzz"
 )
 
-// validBody is for cases that are about something other than the parameters.
-const validBody = `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":15}`
+const (
+	// validBody is for cases that are about something other than the parameters.
+	validBody = `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":15}`
 
-// stubService lets a test reach the failure path the real service cannot be
-// talked into, since validation only ever passes it legal input.
+	jsonContentType = "application/json"
+)
+
+// stubService lets a test observe what the handler passed down, and reach the
+// failure path the real service cannot be talked into, since validation only
+// ever passes it legal input.
 type stubService struct {
 	sequence []string
 	err      error
+
+	// got records the last call, so a test can pin the argument order.
+	got stubCall
 }
 
-func (s stubService) FizzBuzz(_ int, _ string, _ int, _ string, _ int) ([]string, error) {
+type stubCall struct {
+	int1  int
+	str1  string
+	int2  int
+	str2  string
+	limit int
+}
+
+func (s *stubService) FizzBuzz(int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error) {
+	s.got = stubCall{int1: int1, str1: str1, int2: int2, str2: str2, limit: limit}
+
 	return s.sequence, s.err
 }
 
@@ -48,7 +59,7 @@ type response struct {
 	body   []byte
 }
 
-// serve runs one request against the fully assembled handler.
+// serve runs one request against the fully assembled handler, ready for traffic.
 func serve(t *testing.T, svc handler.FizzBuzzService, req *http.Request) response {
 	t.Helper()
 
@@ -57,69 +68,57 @@ func serve(t *testing.T, svc handler.FizzBuzzService, req *http.Request) respons
 	return resp
 }
 
-// serveCapturingLogs puts the logger on the server's base context the way the
-// entrypoint does, so this drives the real propagation path, not a stand-in.
+// serveCapturingLogs also returns the lines the request wrote. ServeHTTP is
+// synchronous, so by the time it returns the logger has seen everything —
+// no server, and no waiting for it to drain.
 func serveCapturingLogs(t *testing.T, svc handler.FizzBuzzService, req *http.Request) (response, []logLine) {
 	t.Helper()
 
-	h, err := handler.New(svc)
+	return serveHandler(t, newHandler(t, svc, true), req)
+}
+
+// newHandler assembles the handler under test. ready is what GET /readyz reports.
+func newHandler(t *testing.T, svc handler.FizzBuzzService, ready bool) http.Handler {
+	t.Helper()
+
+	h, err := handler.New(svc, func() bool { return ready })
 	require.NoError(t, err)
 
-	logs := &logCapture{}
-	server := httptest.NewUnstartedServer(h)
-	server.Config.BaseContext = func(net.Listener) context.Context {
-		return slogx.WithCtx(context.Background(), slog.New(slog.NewJSONHandler(logs, nil)))
-	}
-	server.Start()
-	t.Cleanup(server.Close)
+	return h
+}
 
-	req.URL.Scheme = "http"
-	req.URL.Host = strings.TrimPrefix(server.URL, "http://")
+func serveHandler(t *testing.T, h http.Handler, req *http.Request) (response, []logLine) {
+	t.Helper()
 
-	resp, err := server.Client().Do(req)
+	// The logger rides the request context, the way the entrypoint's BaseContext
+	// puts it there in production.
+	var logs bytes.Buffer
+	req = req.WithContext(slogx.WithCtx(req.Context(), slog.New(slog.NewJSONHandler(&logs, nil))))
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, req)
+
+	result := rec.Result()
+	body, err := io.ReadAll(result.Body)
 	require.NoError(t, err)
+	require.NoError(t, result.Body.Close())
 
-	body, err := io.ReadAll(resp.Body)
-	require.NoError(t, err)
-	require.NoError(t, resp.Body.Close())
-
-	// The access log is written after the body reaches the client, so waiting for
-	// outstanding requests is what makes the lines below complete.
-	server.Close()
-
-	return response{status: resp.StatusCode, header: resp.Header, body: body}, logs.lines(t)
+	return response{status: result.StatusCode, header: result.Header, body: body}, parseLogLines(t, logs.String())
 }
 
 type logLine map[string]any
 
-// logCapture collects log output for assertions. Writes come from the server's
-// goroutine, hence the lock.
-type logCapture struct {
-	mu  sync.Mutex
-	buf bytes.Buffer
-}
-
-func (c *logCapture) Write(p []byte) (int, error) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	return c.buf.Write(p)
-}
-
-func (c *logCapture) lines(t *testing.T) []logLine {
+func parseLogLines(t *testing.T, raw string) []logLine {
 	t.Helper()
 
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
 	var lines []logLine
-	for raw := range strings.SplitSeq(strings.TrimSpace(c.buf.String()), "\n") {
-		if raw == "" {
+	for entry := range strings.SplitSeq(strings.TrimSpace(raw), "\n") {
+		if entry == "" {
 			continue
 		}
 
 		var line logLine
-		require.NoError(t, json.Unmarshal([]byte(raw), &line))
+		require.NoError(t, json.Unmarshal([]byte(entry), &line))
 		lines = append(lines, line)
 	}
 
@@ -137,8 +136,18 @@ func get(t *testing.T, path string) *http.Request {
 func postFizzbuzz(t *testing.T, body string) *http.Request {
 	t.Helper()
 
+	return postFizzbuzzAs(t, jsonContentType, body)
+}
+
+// postFizzbuzzAs additionally takes the content type, so a test can get the
+// header wrong on purpose. An empty contentType omits the header entirely.
+func postFizzbuzzAs(t *testing.T, contentType, body string) *http.Request {
+	t.Helper()
+
 	req := newRequest(t, http.MethodPost, "/fizzbuzz", body)
-	req.Header.Set("Content-Type", "application/json")
+	if contentType != "" {
+		req.Header.Set("Content-Type", contentType)
+	}
 
 	return req
 }
@@ -146,10 +155,7 @@ func postFizzbuzz(t *testing.T, body string) *http.Request {
 func newRequest(t *testing.T, method, path, body string) *http.Request {
 	t.Helper()
 
-	req, err := http.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
-	require.NoError(t, err)
-
-	return req
+	return httptest.NewRequestWithContext(t.Context(), method, path, strings.NewReader(body))
 }
 
 func TestPostFizzbuzz(t *testing.T) {
@@ -160,26 +166,18 @@ func TestPostFizzbuzz(t *testing.T) {
 	}{
 		{
 			name: "substitutes both rules and concatenates a multi-match",
-			body: `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":15}`,
+			body: validBody,
 			want: []string{
 				"1", "2", "fizz", "4", "buzz", "fizz", "7", "8", "fizz", "buzz",
 				"11", "fizz", "13", "14", "fizzbuzz",
 			},
 		},
 		{
-			name: "an empty replacement still substitutes",
-			body: `{"int1":3,"str1":"","int2":5,"str2":"buzz","limit":5}`,
-			want: []string{"1", "2", "", "4", "buzz"},
-		},
-		{
+			// The encoder escapes some of these by default; a client must get back
+			// exactly what it sent.
 			name: "non-ASCII and punctuation round-trip unchanged",
 			body: `{"int1":2,"str1":"a & b = c","int2":3,"str2":"café 🍕","limit":6}`,
 			want: []string{"1", "a & b = c", "café 🍕", "a & b = c", "5", "a & b = ccafé 🍕"},
-		},
-		{
-			name: "the ceiling itself is accepted",
-			body: `{"int1":400,"str1":"x","int2":399,"str2":"y","limit":400}`,
-			want: ceilingSequence(),
 		},
 	}
 
@@ -188,11 +186,84 @@ func TestPostFizzbuzz(t *testing.T) {
 			resp := serve(t, fizzbuzz.NewService(), postFizzbuzz(t, tt.body))
 
 			require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
-			assert.Equal(t, "application/json", resp.header.Get("Content-Type"))
+			assert.Equal(t, jsonContentType, resp.header.Get("Content-Type"))
 
 			var got []string
 			require.NoError(t, json.Unmarshal(resp.body, &got))
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// What the sequence itself contains is the domain's business; that the body's
+// fields arrive in the right positions is this layer's.
+func TestPostFizzbuzzPassesRequestFieldsToTheService(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+		want stubCall
+	}{
+		{
+			name: "each field reaches its own parameter",
+			body: `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":15}`,
+			want: stubCall{int1: 3, str1: "fizz", int2: 5, str2: "buzz", limit: 15},
+		},
+		{
+			// Distinct values throughout, so a swapped pair cannot pass unnoticed.
+			name: "no two parameters are interchangeable",
+			body: `{"int1":2,"str1":"a","int2":7,"str2":"b","limit":9}`,
+			want: stubCall{int1: 2, str1: "a", int2: 7, str2: "b", limit: 9},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			svc := &stubService{sequence: []string{"x"}}
+
+			resp := serve(t, svc, postFizzbuzz(t, tt.body))
+
+			require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
+			assert.Equal(t, tt.want, svc.got)
+		})
+	}
+}
+
+// The ceiling is capacity policy the document states, so both sides of it are
+// this layer's to enforce.
+func TestPostFizzbuzzEnforcesTheLimitCeiling(t *testing.T) {
+	tests := []struct {
+		name       string
+		limit      int
+		wantStatus int
+		wantLen    int
+	}{
+		{
+			name:       "the ceiling itself is accepted",
+			limit:      400,
+			wantStatus: http.StatusOK,
+			wantLen:    400,
+		},
+		{
+			name:       "one above the ceiling is refused",
+			limit:      401,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":` + strconv.Itoa(tt.limit) + `}`
+
+			resp := serve(t, fizzbuzz.NewService(), postFizzbuzz(t, body))
+
+			require.Equal(t, tt.wantStatus, resp.status, "body: %s", resp.body)
+			if tt.wantStatus != http.StatusOK {
+				return
+			}
+
+			var got []string
+			require.NoError(t, json.Unmarshal(resp.body, &got))
+			assert.Len(t, got, tt.wantLen)
 		})
 	}
 }
@@ -221,11 +292,6 @@ func TestPostFizzbuzzRejectsInvalidRequests(t *testing.T) {
 			mentions: "limit",
 		},
 		{
-			name:     "limit above the ceiling",
-			body:     `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":401}`,
-			mentions: "limit",
-		},
-		{
 			name:     "divisor below the minimum",
 			body:     `{"int1":0,"str1":"fizz","int2":5,"str2":"buzz","limit":15}`,
 			mentions: "int1",
@@ -241,6 +307,14 @@ func TestPostFizzbuzzRejectsInvalidRequests(t *testing.T) {
 			mentions: "int1",
 		},
 		{
+			// Satisfies the schema's minimum and still overflows the Go int it
+			// decodes into, so this is the one body validation lets through to the
+			// generated server's unmarshal.
+			name:     "an integer too large for the decoded type",
+			body:     `{"int1":99999999999999999999,"str1":"fizz","int2":5,"str2":"buzz","limit":15}`,
+			mentions: "int1",
+		},
+		{
 			name:     "body over the size limit",
 			body:     `{"int1":3,"str1":"` + strings.Repeat("f", 16<<10) + `","int2":5,"str2":"buzz","limit":15}`,
 			mentions: "body",
@@ -252,7 +326,7 @@ func TestPostFizzbuzzRejectsInvalidRequests(t *testing.T) {
 			resp := serve(t, fizzbuzz.NewService(), postFizzbuzz(t, tt.body))
 
 			require.Equal(t, http.StatusBadRequest, resp.status, "body: %s", resp.body)
-			assert.Equal(t, "application/json", resp.header.Get("Content-Type"))
+			assert.Equal(t, jsonContentType, resp.header.Get("Content-Type"))
 
 			var got handler.Error
 			require.NoError(t, json.Unmarshal(resp.body, &got), "body: %s", resp.body)
@@ -263,112 +337,144 @@ func TestPostFizzbuzzRejectsInvalidRequests(t *testing.T) {
 	}
 }
 
-// A service error means the document and the domain have diverged, which is our
-// fault, not the caller's.
-func TestPostFizzbuzzReportsServiceErrorsAsServerFaults(t *testing.T) {
+// The document declares one request media type, and the validator holds callers
+// to it before the body is ever decoded.
+func TestPostFizzbuzzRequiresAJSONContentType(t *testing.T) {
 	tests := []struct {
-		name string
-		svc  handler.FizzBuzzService
+		name        string
+		contentType string
+		wantStatus  int
 	}{
 		{
-			name: "domain error from the service",
-			svc:  stubService{err: fizzbuzz.ErrInvalidDivisor},
+			name:        "the declared media type is accepted",
+			contentType: jsonContentType,
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "a charset parameter is still that media type",
+			contentType: "application/json; charset=utf-8",
+			wantStatus:  http.StatusOK,
+		},
+		{
+			name:        "another media type is refused",
+			contentType: "text/plain",
+			wantStatus:  http.StatusBadRequest,
+		},
+		{
+			name:        "an absent content type is refused",
+			contentType: "",
+			wantStatus:  http.StatusBadRequest,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := serve(t, tt.svc, postFizzbuzz(t, validBody))
+			resp := serve(t, fizzbuzz.NewService(), postFizzbuzzAs(t, tt.contentType, validBody))
+
+			require.Equal(t, tt.wantStatus, resp.status, "body: %s", resp.body)
+			if tt.wantStatus == http.StatusOK {
+				return
+			}
+
+			var got handler.Error
+			require.NoError(t, json.Unmarshal(resp.body, &got))
+			assert.Contains(t, got.Message, "Content-Type")
+		})
+	}
+}
+
+// A service error means the document and the domain have diverged, which is our
+// fault, not the caller's.
+func TestPostFizzbuzzReportsServiceErrorsAsServerFaults(t *testing.T) {
+	tests := []struct {
+		name string
+		err  error
+	}{
+		{
+			name: "domain error from the service",
+			err:  fizzbuzz.ErrInvalidDivisor,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			resp := serve(t, &stubService{err: tt.err}, postFizzbuzz(t, validBody))
 
 			require.Equal(t, http.StatusInternalServerError, resp.status, "body: %s", resp.body)
 
 			var got handler.Error
 			require.NoError(t, json.Unmarshal(resp.body, &got))
 			assert.NotEmpty(t, got.Message)
-			assert.NotContains(t, got.Message, fizzbuzz.ErrInvalidDivisor.Error(),
+			assert.NotContains(t, got.Message, tt.err.Error(),
 				"internal detail must not leak to the client")
 		})
 	}
 }
 
-func TestRequestID(t *testing.T) {
-	const header = "X-Request-ID"
-
+// The document declares an array, so an empty result has to encode as one. A
+// nil slice would go out as null and break a client that trusts the schema.
+func TestPostFizzbuzzAlwaysEncodesAnArray(t *testing.T) {
 	tests := []struct {
-		name    string
-		inbound string
-		// wantGenerated means the response must carry a fresh UUIDv7 rather than
-		// whatever was sent.
-		wantGenerated bool
+		name     string
+		sequence []string
 	}{
-		{
-			name:          "generated when absent",
-			inbound:       "",
-			wantGenerated: true,
-		},
-		{
-			name:          "an upstream identifier is preserved",
-			inbound:       "trace-from-the-proxy",
-			wantGenerated: false,
-		},
-		{
-			name:          "an over-long identifier is capped",
-			inbound:       strings.Repeat("x", 300),
-			wantGenerated: false,
-		},
+		{name: "a nil sequence", sequence: nil},
+		{name: "an empty sequence", sequence: []string{}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			req := postFizzbuzz(t, `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":3}`)
-			if tt.inbound != "" {
-				req.Header.Set(header, tt.inbound)
-			}
+			resp := serve(t, &stubService{sequence: tt.sequence}, postFizzbuzz(t, validBody))
 
-			resp := serve(t, fizzbuzz.NewService(), req)
-
-			echoed := resp.header.Get(header)
-			require.NotEmpty(t, echoed, "every response must carry an identifier")
-			assert.LessOrEqual(t, len(echoed), 64)
-
-			if !tt.wantGenerated {
-				assert.Equal(t, truncate(tt.inbound, 64), echoed)
-				return
-			}
-
-			parsed, err := uuid.Parse(echoed)
-			require.NoError(t, err, "got %q", echoed)
-			assert.Equal(t, uuid.Version(7), parsed.Version())
-			assert.Equal(t, uuid.RFC4122, parsed.Variant())
+			require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
+			assert.JSONEq(t, `[]`, string(resp.body))
 		})
 	}
 }
 
-// Sorting by identifier should order requests by arrival, which is the whole
-// reason for choosing v7 over a random identifier.
-func TestGeneratedRequestIDsSortByArrival(t *testing.T) {
+// The middleware's own behaviour — minting, capping, adopting an upstream
+// value — belongs to httpx. What matters here is that the chain includes it, on
+// every response a client can get.
+func TestRequestIDIsStampedOnEveryResponse(t *testing.T) {
 	tests := []struct {
-		name  string
-		count int
+		name       string
+		svc        handler.FizzBuzzService
+		request    func(t *testing.T) *http.Request
+		wantStatus int
 	}{
-		{name: "successive requests", count: 5},
+		{
+			name:       "on a served request",
+			svc:        fizzbuzz.NewService(),
+			request:    func(t *testing.T) *http.Request { t.Helper(); return postFizzbuzz(t, validBody) },
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "on a rejected request",
+			svc:        fizzbuzz.NewService(),
+			request:    func(t *testing.T) *http.Request { t.Helper(); return postFizzbuzz(t, `{}`) },
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "on a server fault",
+			svc:        &stubService{err: fizzbuzz.ErrInvalidDivisor},
+			request:    func(t *testing.T) *http.Request { t.Helper(); return postFizzbuzz(t, validBody) },
+			wantStatus: http.StatusInternalServerError,
+		},
+		{
+			name:       "on a path the document does not declare",
+			svc:        fizzbuzz.NewService(),
+			request:    func(t *testing.T) *http.Request { t.Helper(); return get(t, "/docs") },
+			wantStatus: http.StatusNotFound,
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ids := make([]string, 0, tt.count)
-			for range tt.count {
-				resp := serve(t, fizzbuzz.NewService(), get(t, "/healthz"))
+			resp := serve(t, tt.svc, tt.request(t))
 
-				id := resp.header.Get("X-Request-ID")
-				require.NotEmpty(t, id)
-				ids = append(ids, id)
-
-				// v7 orders by millisecond; within one, the remaining bits are random.
-				time.Sleep(2 * time.Millisecond)
-			}
-
-			assert.True(t, slices.IsSorted(ids), "issued in order but sort to %v", ids)
+			require.Equal(t, tt.wantStatus, resp.status, "body: %s", resp.body)
+			assert.NotEmpty(t, resp.header.Get("X-Request-ID"),
+				"a user reporting a failure has only this to quote")
 		})
 	}
 }
@@ -433,68 +539,82 @@ func TestAccessLog(t *testing.T) {
 	}
 }
 
-func TestMetaEndpoints(t *testing.T) {
+func TestHealthz(t *testing.T) {
+	resp := serve(t, fizzbuzz.NewService(), get(t, "/healthz"))
+
+	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
+	assert.Equal(t, jsonContentType, resp.header.Get("Content-Type"))
+
+	var got handler.Health
+	require.NoError(t, json.Unmarshal(resp.body, &got))
+	assert.NotEmpty(t, got.Status)
+}
+
+// Readiness must turn 503 the moment shutdown starts, so a load balancer stops
+// routing before the drain, while liveness stays 200 so nothing restarts us.
+func TestReadiness(t *testing.T) {
 	tests := []struct {
 		name        string
-		path        string
-		contentType string
-		assertBody  func(t *testing.T, body []byte)
+		ready       bool
+		wantReadyz  int
+		wantHealthz int
 	}{
 		{
-			name:        "healthz reports that the process is serving",
-			path:        "/healthz",
-			contentType: "application/json",
-			assertBody: func(t *testing.T, body []byte) {
-				t.Helper()
-
-				var got handler.Health
-				require.NoError(t, json.Unmarshal(body, &got))
-				assert.NotEmpty(t, got.Status)
-			},
+			name:        "ready while serving",
+			ready:       true,
+			wantReadyz:  http.StatusOK,
+			wantHealthz: http.StatusOK,
 		},
 		{
-			name:        "definition serves the contract as parseable JSON",
-			path:        "/definition",
-			contentType: "application/json",
-			assertBody: func(t *testing.T, body []byte) {
-				t.Helper()
-
-				var doc struct {
-					OpenAPI string                    `json:"openapi"`
-					Paths   map[string]map[string]any `json:"paths"`
-				}
-				require.NoError(t, json.Unmarshal(body, &doc))
-
-				assert.True(t, strings.HasPrefix(doc.OpenAPI, "3.0"), "got %q", doc.OpenAPI)
-				for _, path := range []string{"/fizzbuzz", "/healthz", "/readyz", "/definition", "/documentation"} {
-					assert.Contains(t, doc.Paths, path)
-				}
-			},
-		},
-		{
-			name:        "documentation serves a browsable page",
-			path:        "/documentation",
-			contentType: "text/html",
-			assertBody: func(t *testing.T, body []byte) {
-				t.Helper()
-
-				assert.Contains(t, string(body), "<html")
-				// The renderer comes from the CDN, so its absence means the
-				// generated page is no longer a Redoc page at all.
-				assert.Contains(t, string(body), "cdn.redocly.com")
-			},
+			name:        "not ready once shutdown has begun",
+			ready:       false,
+			wantReadyz:  http.StatusServiceUnavailable,
+			wantHealthz: http.StatusOK,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			resp := serve(t, fizzbuzz.NewService(), get(t, tt.path))
+			h := newHandler(t, fizzbuzz.NewService(), tt.ready)
 
-			require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
-			assert.Equal(t, tt.contentType, resp.header.Get("Content-Type"))
-			tt.assertBody(t, resp.body)
+			readyz, _ := serveHandler(t, h, get(t, "/readyz"))
+			require.Equal(t, tt.wantReadyz, readyz.status, "body: %s", readyz.body)
+			assert.Equal(t, jsonContentType, readyz.header.Get("Content-Type"))
+
+			healthz, _ := serveHandler(t, h, get(t, "/healthz"))
+			assert.Equal(t, tt.wantHealthz, healthz.status,
+				"liveness must not fail during shutdown, or the orchestrator severs the drain")
 		})
 	}
+}
+
+func TestDefinition(t *testing.T) {
+	resp := serve(t, fizzbuzz.NewService(), get(t, "/definition"))
+
+	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
+	assert.Equal(t, jsonContentType, resp.header.Get("Content-Type"))
+
+	var doc struct {
+		OpenAPI string                    `json:"openapi"`
+		Paths   map[string]map[string]any `json:"paths"`
+	}
+	require.NoError(t, json.Unmarshal(resp.body, &doc))
+
+	assert.True(t, strings.HasPrefix(doc.OpenAPI, "3.0"), "got %q", doc.OpenAPI)
+
+	paths := []string{"/fizzbuzz", "/healthz", "/readyz", "/definition", "/documentation"}
+	for _, path := range paths {
+		assert.Contains(t, doc.Paths, path)
+	}
+}
+
+func TestDocumentation(t *testing.T) {
+	resp := serve(t, fizzbuzz.NewService(), get(t, "/documentation"))
+
+	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
+	assert.Equal(t, "text/html", resp.header.Get("Content-Type"))
+	assert.Contains(t, string(resp.body), "<html", "the page must be HTML")
+	assert.Contains(t, string(resp.body), "cdn.redocly.com", "the page must be rendered by Redoc")
 }
 
 // Nothing is registered outside the generated router, so a path the document
@@ -531,64 +651,4 @@ func TestUndeclaredRequestsAreRefused(t *testing.T) {
 			assert.NotEmpty(t, got.Message)
 		})
 	}
-}
-
-// Readiness must turn 503 the moment shutdown starts, so a load balancer stops
-// routing before the drain, while liveness stays 200 so nothing restarts us.
-func TestReadiness(t *testing.T) {
-	tests := []struct {
-		name         string
-		shuttingDown bool
-		wantReadyz   int
-		wantHealthz  int
-	}{
-		{
-			name:         "ready while serving",
-			shuttingDown: false,
-			wantReadyz:   http.StatusOK,
-			wantHealthz:  http.StatusOK,
-		},
-		{
-			name:         "not ready once shutdown has begun",
-			shuttingDown: true,
-			wantReadyz:   http.StatusServiceUnavailable,
-			wantHealthz:  http.StatusOK,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Cleanup(handler.ResetShutdown)
-			if tt.shuttingDown {
-				handler.BeginShutdown()
-			}
-
-			readyz := serve(t, fizzbuzz.NewService(), get(t, "/readyz"))
-			require.Equal(t, tt.wantReadyz, readyz.status, "body: %s", readyz.body)
-			assert.Equal(t, "application/json", readyz.header.Get("Content-Type"))
-
-			healthz := serve(t, fizzbuzz.NewService(), get(t, "/healthz"))
-			assert.Equal(t, tt.wantHealthz, healthz.status,
-				"liveness must not fail during shutdown, or the orchestrator severs the drain")
-		})
-	}
-}
-
-func truncate(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-
-	return s[:n]
-}
-
-// ceilingSequence is built rather than written out: the literal would be 400
-// entries long.
-func ceilingSequence() []string {
-	want := make([]string, 0, 400)
-	for n := 1; n <= 398; n++ {
-		want = append(want, strconv.Itoa(n))
-	}
-
-	return append(want, "y", "x")
 }

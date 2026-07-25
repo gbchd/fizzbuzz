@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -52,7 +53,10 @@ func run(ctx context.Context) error {
 	// Catches stdlib and third-party output only, our own code must always go through slogx.FromCtx.
 	slog.SetDefault(logger)
 
-	h, err := handler.New(fizzbuzz.NewService())
+	var shuttingDown atomic.Bool
+	isReady := func() bool { return !shuttingDown.Load() }
+
+	h, err := handler.New(fizzbuzz.NewService(), isReady)
 	if err != nil {
 		return fmt.Errorf("init handler: %w", err)
 	}
@@ -84,8 +88,9 @@ func run(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 	}
+
 	stop()
-	handler.BeginShutdown()
+	shuttingDown.Store(true)
 	slogx.FromCtx(ctx).Info("received shutdown signal, shutting down")
 
 	time.Sleep(_readinessDrainDelay)
