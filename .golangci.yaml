@@ -23,6 +23,7 @@ linters:
     - nolintlint
     - prealloc
     - revive
+    - sloglint
     - sqlclosecheck
     - unconvert
     - unparam
@@ -43,6 +44,9 @@ linters:
         - name: unused-parameter
           arguments:
             - allow-regex: "^_"
+    sloglint:
+      msg-style: lowercased
+      no-global: all
 
   exclusions:
     presets:
