@@ -1,5 +1,5 @@
 # Binaries
-/myapp
+/fizzbuzz
 /bin/
 /dist/
 *.exe
@@ -18,6 +18,9 @@ coverage.html
 /vendor/
 go.work
 go.work.sum
+
+# package-lock.json is committed
+/node_modules/
 
 # Env / secrets
 .env

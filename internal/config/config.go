@@ -16,7 +16,14 @@ const envPrefix = "FIZZBUZZ_"
 
 // Config is the application's configuration.
 type Config struct {
-	Log LogConfig `envPrefix:"LOG_"`
+	Log  LogConfig  `envPrefix:"LOG_"`
+	HTTP HTTPConfig `envPrefix:"HTTP_"`
+}
+
+// HTTPConfig holds only what an operator has to match to their platform; the
+// connection timeouts are constants.
+type HTTPConfig struct {
+	Address string `env:"ADDRESS" envDefault:":8080"`
 }
 
 // LogConfig configures the logger. Both fields are typed rather than strings so

@@ -1,0 +1,213 @@
+# The authoritative description of the HTTP contract: the server is generated
+# from this document, and every constraint below is enforced before any handler
+# runs. 3.0.3 rather than 3.1, whose support in the validation library is
+# incomplete.
+openapi: 3.0.3
+
+info:
+  title: fizzbuzz
+  description: |
+    Generates a sequence of numbers from 1 to a limit, substituting text for
+    numbers divisible by the configured divisors.
+  version: 1.0.0
+
+paths:
+  /definition:
+    get:
+      operationId: getDefinition
+      summary: This OpenAPI JSON document
+      description: |
+        Returns the OpenAPI document this instance enforces, as JSON, so clients
+        can generate a typed client against the exact contract being served.
+      responses:
+        '200':
+          description: The OpenAPI document.
+          content:
+            application/json:
+              schema:
+                type: object
+                description: An OpenAPI 3.0.3 document.
+
+  /documentation:
+    get:
+      operationId: getDocumentation
+      summary: Browsable API reference
+      description: |
+        Returns an HTML reference page rendered from this document. The document
+        itself is inlined; the Redoc renderer is loaded from a CDN, so a browser
+        with no network access sees an unrendered page.
+      responses:
+        '200':
+          description: The reference page.
+          content:
+            text/html:
+              schema:
+                type: string
+                format: binary
+
+  /healthz:
+    get:
+      operationId: getHealthz
+      summary: Liveness probe
+      description: |
+        Reports that the process is serving. Stays 200 throughout shutdown: an
+        orchestrator restarts what fails this, which would sever the drain.
+        Excluded from the access log.
+      responses:
+        '200':
+          description: The process is serving.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+
+  /readyz:
+    get:
+      operationId: getReadyz
+      summary: Readiness probe
+      description: |
+        Reports whether the process should be sent traffic. Turns 503 as soon as
+        shutdown begins, so a load balancer stops routing new requests before
+        the drain starts. Excluded from the access log.
+      responses:
+        '200':
+          description: Ready for traffic.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Health'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /fizzbuzz:
+    post:
+      operationId: postFizzbuzz
+      summary: Generate a sequence
+      description: |
+        Returns the numbers from 1 to `limit` as strings, with multiples of
+        `int1` replaced by `str1`, multiples of `int2` replaced by `str2`, and
+        multiples of both replaced by `str1` followed by `str2`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FizzbuzzRequest'
+      responses:
+        '200':
+          description: The generated sequence.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Sequence'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+components:
+  schemas:
+    FizzbuzzRequest:
+      type: object
+      description: |
+        Each divisor is paired with the string that replaces its multiples.
+      required:
+        - int1
+        - str1
+        - int2
+        - str2
+        - limit
+      properties:
+        int1:
+          type: integer
+          description: First divisor.
+          minimum: 1
+          example: 3
+        str1:
+          type: string
+          description: Replacement for multiples of `int1`. May be empty, which suppresses the number.
+          maxLength: 64
+          example: fizz
+        int2:
+          type: integer
+          description: Second divisor.
+          minimum: 1
+          example: 5
+        str2:
+          type: string
+          description: Replacement for multiples of `int2`. May be empty, which suppresses the number.
+          maxLength: 64
+          example: buzz
+        limit:
+          type: integer
+          description: |
+            The sequence runs from 1 to this value. The ceiling bounds how much
+            one request can allocate; it is capacity policy, not a domain rule.
+          minimum: 1
+          maximum: 400
+          example: 15
+
+    Sequence:
+      type: array
+      description: |
+        One entry per number from 1 to `limit`: the concatenated replacements of
+        every divisor it matched, or the number itself when it matched none.
+      items:
+        type: string
+      example:
+        - '1'
+        - '2'
+        - fizz
+        - '4'
+        - buzz
+
+    Health:
+      type: object
+      required:
+        - status
+      properties:
+        status:
+          type: string
+          example: ok
+
+    Error:
+      type: object
+      description: The shape of every failure this API reports.
+      required:
+        - message
+      properties:
+        message:
+          type: string
+          description: A human-readable description of what went wrong.
+          example: 'request body has an error: doesn''t match schema: Error at "/limit": number must be at most 400'
+
+  responses:
+    BadRequest:
+      description: The request does not satisfy this document.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    MethodNotAllowed:
+      description: The request method is not supported for this path.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    InternalServerError:
+      description: The service failed to handle an otherwise valid request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    ServiceUnavailable:
+      description: The process is shutting down and is not taking new traffic.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
