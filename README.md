@@ -38,7 +38,7 @@ curl -X POST localhost:8080/fizzbuzz \
   -d '{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":15}'
 ```
 
-`int1` and `int2` must be at least 1, `limit` must be between 1 and 400, and `str1` and `str2` are capped at 64 characters. Anything else returns `400` with a JSON body naming the offending field.
+Invalid request bodies return `400` with a JSON body naming the offending field. Undeclared paths return `404` and wrong methods return `405`, both still using the same JSON error shape.
 
 Every request carries an `X-Request-ID`: the one the caller sent, or a generated UUIDv7 — timestamp-prefixed, so identifiers sort by arrival. It is echoed on the response and attached to that request's log lines.
 
