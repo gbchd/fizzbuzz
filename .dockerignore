@@ -1,0 +1,34 @@
+# VCS / CI
+.git/
+.github/
+
+# AI workflow / tooling
+.claude/
+.codegraph/
+.scratch/
+.playwright/
+
+# Node tooling (used only for docs generation, not the Go build)
+node_modules/
+package.json
+package-lock.json
+
+# Docs (also gitignored; irrelevant to the image)
+docs/
+CONTEXT.md
+
+# Local build artifacts
+/fizzbuzz
+/bin/
+/dist/
+*.test
+*.out
+coverage.txt
+coverage.html
+
+# Misc
+.DS_Store
+.idea/
+.vscode/
+README.md
+CODING_STANDARDS.md
