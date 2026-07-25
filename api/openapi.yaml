@@ -102,6 +102,8 @@ paths:
                 $ref: '#/components/schemas/Sequence'
         '400':
           $ref: '#/components/responses/BadRequest'
+        '405':
+          $ref: '#/components/responses/MethodNotAllowed'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -184,6 +186,13 @@ components:
   responses:
     BadRequest:
       description: The request does not satisfy this document.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    MethodNotAllowed:
+      description: The request method is not supported for this path.
       content:
         application/json:
           schema:
