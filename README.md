@@ -19,3 +19,12 @@ The server needs to be:
 Bonus: add a statistics endpoint allowing users to know what the most frequent request has been. This endpoint should:
 - Accept no parameter
 - Return the parameters corresponding to the most used request, as well as the number of hits for this request
+
+## Configuration
+
+Configuration comes from environment variables, all prefixed with `FIZZBUZZ_`. A variable that is unset or empty falls back to its default; an invalid value stops the service at startup.
+
+| Variable | Default | Values |
+| --- | --- | --- |
+| `FIZZBUZZ_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` (case-insensitive, and offsets such as `warn+2` are accepted) |
+| `FIZZBUZZ_LOG_FORMAT` | `json` | `json`, `text` |
