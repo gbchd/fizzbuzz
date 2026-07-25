@@ -5,6 +5,7 @@ go 1.26.5
 require github.com/stretchr/testify v1.11.1
 
 require (
+	github.com/caarlos0/env/v11 v11.4.1 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/kr/pretty v0.3.1 // indirect
