@@ -54,6 +54,19 @@ Configuration comes from environment variables, all prefixed with `FIZZBUZZ_`. A
 
 Connection timeouts are constants rather than configuration.
 
+## Docker
+
+```
+docker build -t fizzbuzz .
+docker run --rm -p 8080:8080 fizzbuzz
+```
+
+Configure it with the same `FIZZBUZZ_`-prefixed environment variables as above, e.g.:
+
+```
+docker run --rm -p 8080:8080 -e FIZZBUZZ_LOG_LEVEL=debug fizzbuzz
+```
+
 ## Development
 
 The OpenAPI document produces both the server code and the documentation page:
