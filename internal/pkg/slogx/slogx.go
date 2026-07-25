@@ -9,20 +9,40 @@ import (
 
 type loggerkey struct{}
 
+// Format is the logger's output encoding, typed so that an invalid value is
+// rejected where it enters the program rather than at the first log call.
+type Format string
+
+const (
+	FormatJSON Format = "json"
+	FormatText Format = "text"
+)
+
+// UnmarshalText lets configuration loaders parse and validate a Format in one step.
+func (f *Format) UnmarshalText(text []byte) error {
+	switch format := Format(text); format {
+	case FormatJSON, FormatText:
+		*f = format
+		return nil
+	default:
+		return fmt.Errorf("invalid log format: %q", format)
+	}
+}
+
 // New creates a new logger with the given level and format.
-//
-// Supported formats: "json" or "text"
-func New(level slog.Level, format string) (*slog.Logger, error) {
+func New(level slog.Level, format Format) (*slog.Logger, error) {
 	opts := &slog.HandlerOptions{Level: level}
 
 	var handler slog.Handler
 	switch format {
-	case "json":
+	case FormatJSON:
 		handler = slog.NewJSONHandler(os.Stdout, opts)
-	case "text":
+	case FormatText:
 		handler = slog.NewTextHandler(os.Stdout, opts)
 	default:
-		return nil, fmt.Errorf("invalid log format: %s", format)
+		// Format's underlying type is string, so callers bypassing UnmarshalText
+		// can still hand us something invalid.
+		return nil, fmt.Errorf("invalid log format: %q", format)
 	}
 
 	return slog.New(handler), nil
