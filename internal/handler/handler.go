@@ -16,6 +16,7 @@ import (
 
 	"github.com/gbchd/fizzbuzz/internal/pkg/httpx"
 	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
+	"github.com/gbchd/fizzbuzz/internal/service/statistics"
 )
 
 const (
@@ -38,12 +39,16 @@ type FizzBuzzService interface {
 	FizzBuzz(int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error)
 }
 
+type StatisticsReader interface {
+	Top() (statistics.Query, int, error)
+}
+
 // New assembles the whole request path into one http.Handler. Building the
 // chain in one place is what keeps its order defined once.
 //
 // isReady is what GET /readyz reports. Injected rather than held here, so
 // lifecycle state stays with the entrypoint that owns the shutdown signal.
-func New(svc FizzBuzzService, isReady func() bool) (http.Handler, error) {
+func New(svc FizzBuzzService, stats StatisticsReader, isReady func() bool) (http.Handler, error) {
 	spec, err := GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("handler: load embedded spec: %w", err)
@@ -64,7 +69,7 @@ func New(svc FizzBuzzService, isReady func() bool) (http.Handler, error) {
 	openapi3.SchemaErrorDetailsDisabled = true
 
 	strict := NewStrictHandlerWithOptions(
-		&server{svc: svc, definition: definition, isReady: isReady},
+		&server{svc: svc, stats: stats, definition: definition, isReady: isReady},
 		nil,
 		StrictHTTPServerOptions{
 			RequestErrorHandlerFunc:  undecodableRequest,
@@ -90,6 +95,7 @@ func New(svc FizzBuzzService, isReady func() bool) (http.Handler, error) {
 // server implements the generated StrictServerInterface.
 type server struct {
 	svc        FizzBuzzService
+	stats      StatisticsReader
 	definition map[string]any
 	isReady    func() bool
 }
@@ -109,6 +115,21 @@ func (s *server) PostFizzbuzz(_ context.Context, request PostFizzbuzzRequestObje
 	}
 
 	return PostFizzbuzz200JSONResponse(sequence), nil
+}
+
+func (s *server) GetStatistics(_ context.Context, _ GetStatisticsRequestObject) (GetStatisticsResponseObject, error) {
+	q, hits, err := s.stats.Top()
+	if err != nil {
+		if errors.Is(err, statistics.ErrNoHits) {
+			return GetStatistics404JSONResponse{NotFoundJSONResponse{Message: "no statistics recorded yet"}}, nil
+		}
+		return nil, fmt.Errorf("get statistics: %w", err)
+	}
+
+	return GetStatistics200JSONResponse{
+		Request: FizzbuzzRequest{Int1: q.Int1, Str1: q.Str1, Int2: q.Int2, Str2: q.Str2, Limit: q.Limit},
+		Hits:    hits,
+	}, nil
 }
 
 func (s *server) GetHealthz(_ context.Context, _ GetHealthzRequestObject) (GetHealthzResponseObject, error) {

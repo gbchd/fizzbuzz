@@ -3,6 +3,7 @@ package handler_test
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"io"
 	"log/slog"
 	"net/http"
@@ -17,6 +18,7 @@ import (
 	"github.com/gbchd/fizzbuzz/internal/handler"
 	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
 	"github.com/gbchd/fizzbuzz/internal/service/fizzbuzz"
+	"github.com/gbchd/fizzbuzz/internal/service/statistics"
 )
 
 const (
@@ -51,6 +53,18 @@ func (s *stubService) FizzBuzz(int1 int, str1 string, int2 int, str2 string, lim
 	return s.sequence, s.err
 }
 
+// stubStats lets a test control what GetStatistics reads, including errors
+// the real Repository never produces.
+type stubStats struct {
+	query statistics.Query
+	hits  int
+	err   error
+}
+
+func (s stubStats) Top() (statistics.Query, int, error) {
+	return s.query, s.hits, s.err
+}
+
 // response is everything a client can observe, which is all these tests assert
 // on — never middleware order, generated type names, or log formatting.
 type response struct {
@@ -81,7 +95,13 @@ func serveCapturingLogs(t *testing.T, svc handler.FizzBuzzService, req *http.Req
 func newHandler(t *testing.T, svc handler.FizzBuzzService, ready bool) http.Handler {
 	t.Helper()
 
-	h, err := handler.New(svc, func() bool { return ready })
+	return newHandlerWithStats(t, svc, stubStats{err: statistics.ErrNoHits}, ready)
+}
+
+func newHandlerWithStats(t *testing.T, svc handler.FizzBuzzService, stats handler.StatisticsReader, ready bool) http.Handler {
+	t.Helper()
+
+	h, err := handler.New(svc, stats, func() bool { return ready })
 	require.NoError(t, err)
 
 	return h
@@ -432,6 +452,63 @@ func TestPostFizzbuzzAlwaysEncodesAnArray(t *testing.T) {
 	}
 }
 
+func TestGetStatistics(t *testing.T) {
+	tests := []struct {
+		name       string
+		stats      stubStats
+		wantStatus int
+		wantBody   *handler.Statistics
+	}{
+		{
+			name: "reflects the Repository's most frequent Query",
+			// Distinct values throughout, so a swapped field cannot pass unnoticed.
+			stats: stubStats{
+				query: statistics.Query{Int1: 2, Str1: "a", Int2: 7, Str2: "b", Limit: 9},
+				hits:  4,
+			},
+			wantStatus: http.StatusOK,
+			wantBody: &handler.Statistics{
+				Request: handler.FizzbuzzRequest{Int1: 2, Str1: "a", Int2: 7, Str2: "b", Limit: 9},
+				Hits:    4,
+			},
+		},
+		{
+			name:       "ErrNoHits is reported as 404",
+			stats:      stubStats{err: statistics.ErrNoHits},
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "any other error is a server fault, not leaked to the client",
+			stats:      stubStats{err: assert.AnError},
+			wantStatus: http.StatusInternalServerError,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := newHandlerWithStats(t, fizzbuzz.NewService(), tt.stats, true)
+
+			resp, _ := serveHandler(t, h, get(t, "/statistics"))
+
+			require.Equal(t, tt.wantStatus, resp.status, "body: %s", resp.body)
+			if tt.wantStatus != http.StatusOK {
+				var got handler.Error
+				require.NoError(t, json.Unmarshal(resp.body, &got))
+				assert.NotEmpty(t, got.Message)
+				if tt.stats.err != nil && !errors.Is(tt.stats.err, statistics.ErrNoHits) {
+					assert.NotContains(t, got.Message, tt.stats.err.Error(),
+						"internal detail must not leak to the client")
+				}
+				return
+			}
+
+			var got handler.Statistics
+			require.NoError(t, json.Unmarshal(resp.body, &got))
+			assert.Equal(t, *tt.wantBody, got)
+		})
+	}
+}
+
 // The middleware's own behaviour — minting, capping, adopting an upstream
 // value — belongs to httpx. What matters here is that the chain includes it, on
 // every response a client can get.
@@ -602,7 +679,7 @@ func TestDefinition(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(doc.OpenAPI, "3.0"), "got %q", doc.OpenAPI)
 
-	paths := []string{"/fizzbuzz", "/healthz", "/readyz", "/definition", "/documentation"}
+	paths := []string{"/fizzbuzz", "/healthz", "/readyz", "/definition", "/documentation", "/statistics"}
 	for _, path := range paths {
 		assert.Contains(t, doc.Paths, path)
 	}
