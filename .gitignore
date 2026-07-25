@@ -19,6 +19,9 @@ coverage.html
 go.work
 go.work.sum
 
+# package-lock.json is committed
+/node_modules/
+
 # Env / secrets
 .env
 .env.*

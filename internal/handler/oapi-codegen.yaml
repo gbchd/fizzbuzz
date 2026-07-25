@@ -1,0 +1,12 @@
+# Strict mode so a handler cannot answer with a status or body its operation
+# does not declare. One embedded copy of the spec, so what GET /definition
+# publishes and what the validation middleware enforces cannot drift.
+package: handler
+output: openapi.gen.go
+generate:
+  std-http-server: true
+  strict-server: true
+  models: true
+  embedded-spec: true
+output-options:
+  skip-prune: true

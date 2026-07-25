@@ -45,6 +45,34 @@ jobs:
           name: coverage
           path: coverage.out
 
+  generate:
+    name: Generated output is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install the documentation toolchain
+        run: npm ci
+
+      - name: Regenerate from the OpenAPI document
+        run: go generate ./...
+
+      - name: Fail if the committed output is stale
+        run: |
+          if ! git diff --exit-code; then
+            echo "::error::Generated output no longer matches api/openapi.yaml. Run 'npm ci && go generate ./...' and commit the result."
+            exit 1
+          fi
+
   vet-build-vulncheck:
     name: Vet, build & vulncheck
     runs-on: ubuntu-latest

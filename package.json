@@ -1,0 +1,8 @@
+{
+  "name": "fizzbuzz-docs",
+  "private": true,
+  "description": "Documentation toolchain, invoked by `go generate ./...`.",
+  "devDependencies": {
+    "@redocly/cli": "2.40.0"
+  }
+}
