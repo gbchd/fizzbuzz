@@ -16,34 +16,85 @@ type levelCheck struct {
 	want  bool
 }
 
+func TestFormatUnmarshalText(t *testing.T) {
+	tests := []struct {
+		name    string
+		text    string
+		want    slogx.Format
+		wantErr bool
+	}{
+		{
+			name: "json",
+			text: "json",
+			want: slogx.FormatJSON,
+		},
+		{
+			name: "text",
+			text: "text",
+			want: slogx.FormatText,
+		},
+		{
+			name:    "unknown format",
+			text:    "yaml",
+			wantErr: true,
+		},
+		{
+			name:    "empty",
+			text:    "",
+			wantErr: true,
+		},
+		{
+			name:    "case sensitive",
+			text:    "JSON",
+			wantErr: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got slogx.Format
+			err := got.UnmarshalText([]byte(tt.text))
+
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Empty(t, got)
+				return
+			}
+
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
 func TestNew(t *testing.T) {
 	tests := []struct {
 		name    string
 		level   slog.Level
-		format  string
+		format  slogx.Format
 		wantErr bool
 		checks  []levelCheck
 	}{
 		{
 			name:   "json format",
 			level:  slog.LevelInfo,
-			format: "json",
+			format: slogx.FormatJSON,
 		},
 		{
 			name:   "text format",
 			level:  slog.LevelInfo,
-			format: "text",
+			format: slogx.FormatText,
 		},
 		{
 			name:    "invalid format",
 			level:   slog.LevelInfo,
-			format:  "yaml",
+			format:  slogx.Format("yaml"),
 			wantErr: true,
 		},
 		{
 			name:   "respects configured level",
 			level:  slog.LevelWarn,
-			format: "json",
+			format: slogx.FormatJSON,
 			checks: []levelCheck{
 				{level: slog.LevelInfo, want: false},
 				{level: slog.LevelWarn, want: true},
@@ -72,7 +123,7 @@ func TestNew(t *testing.T) {
 }
 
 func TestFromCtx(t *testing.T) {
-	customLogger, err := slogx.New(slog.LevelDebug, "text")
+	customLogger, err := slogx.New(slog.LevelDebug, slogx.FormatText)
 	require.NoError(t, err)
 
 	tests := []struct {
@@ -127,7 +178,7 @@ func TestWithCtx(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			logger, err := slogx.New(slog.LevelInfo, "json")
+			logger, err := slogx.New(slog.LevelInfo, slogx.FormatJSON)
 			require.NoError(t, err)
 
 			child := slogx.WithCtx(tt.parent, logger)
