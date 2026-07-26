@@ -4,6 +4,7 @@ import (
 	"log/slog"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -13,9 +14,11 @@ import (
 )
 
 const (
-	levelVar   = "FIZZBUZZ_LOG_LEVEL"
-	formatVar  = "FIZZBUZZ_LOG_FORMAT"
-	addressVar = "FIZZBUZZ_HTTP_ADDRESS"
+	levelVar    = "FIZZBUZZ_LOG_LEVEL"
+	formatVar   = "FIZZBUZZ_LOG_FORMAT"
+	addressVar  = "FIZZBUZZ_HTTP_ADDRESS"
+	requestsVar = "FIZZBUZZ_HTTP_RATE_LIMIT_REQUESTS"
+	windowVar   = "FIZZBUZZ_HTTP_RATE_LIMIT_WINDOW"
 )
 
 // defaults lets each case below state only what it changes.
@@ -25,7 +28,9 @@ var defaults = config.Config{
 		Format: slogx.FormatJSON,
 	},
 	HTTP: config.HTTPConfig{
-		Address: ":8080",
+		Address:           ":8080",
+		RateLimitRequests: 600,
+		RateLimitWindow:   time.Minute,
 	},
 }
 
@@ -34,7 +39,7 @@ var defaults = config.Config{
 func setEnv(t *testing.T, env map[string]string) {
 	t.Helper()
 
-	for _, key := range []string{levelVar, formatVar, addressVar} {
+	for _, key := range []string{levelVar, formatVar, addressVar, requestsVar, windowVar} {
 		value, ok := env[key]
 		t.Setenv(key, value) // registers restoration of the original value
 		if !ok {
@@ -57,14 +62,18 @@ func TestLoad(t *testing.T) {
 		{
 			name: "explicit values",
 			env: map[string]string{
-				levelVar:   "debug",
-				formatVar:  "text",
-				addressVar: "127.0.0.1:9090",
+				levelVar:    "debug",
+				formatVar:   "text",
+				addressVar:  "127.0.0.1:9090",
+				requestsVar: "50",
+				windowVar:   "30s",
 			},
 			override: func(cfg *config.Config) {
 				cfg.Log.Level = slog.LevelDebug
 				cfg.Log.Format = slogx.FormatText
 				cfg.HTTP.Address = "127.0.0.1:9090"
+				cfg.HTTP.RateLimitRequests = 50
+				cfg.HTTP.RateLimitWindow = 30 * time.Second
 			},
 		},
 		{
@@ -75,8 +84,10 @@ func TestLoad(t *testing.T) {
 		{
 			name: "empty values fall back to the defaults",
 			env: map[string]string{
-				formatVar:  "",
-				addressVar: "",
+				formatVar:   "",
+				addressVar:  "",
+				requestsVar: "",
+				windowVar:   "",
 			},
 		},
 		{
@@ -87,6 +98,22 @@ func TestLoad(t *testing.T) {
 		{
 			name:    "invalid format",
 			env:     map[string]string{formatVar: "yaml"},
+			wantErr: true,
+		},
+		{
+			name:    "unparseable window",
+			env:     map[string]string{windowVar: "soon"},
+			wantErr: true,
+		},
+		{
+			// Parses fine and would answer nothing, so it has to fail at startup.
+			name:    "an allowance of zero is refused",
+			env:     map[string]string{requestsVar: "0"},
+			wantErr: true,
+		},
+		{
+			name:    "a window of zero is refused",
+			env:     map[string]string{windowVar: "0s"},
 			wantErr: true,
 		},
 	}

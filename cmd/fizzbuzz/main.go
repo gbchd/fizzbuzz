@@ -65,7 +65,12 @@ func run(ctx context.Context) error {
 
 	svc := statistics.NewRecorder(fizzbuzz.NewService(), statsmemory.New())
 
-	h, err := handler.New(svc, svc, isReady)
+	rateLimit := handler.RateLimit{
+		Requests: cfg.HTTP.RateLimitRequests,
+		Window:   cfg.HTTP.RateLimitWindow,
+	}
+
+	h, err := handler.New(svc, svc, isReady, rateLimit)
 	if err != nil {
 		return fmt.Errorf("init handler: %w", err)
 	}

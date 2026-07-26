@@ -51,8 +51,18 @@ Configuration comes from environment variables, all prefixed with `FIZZBUZZ_`. A
 | `FIZZBUZZ_LOG_LEVEL` | `info` | `debug`, `info`, `warn`, `error` (case-insensitive, and offsets such as `warn+2` are accepted) |
 | `FIZZBUZZ_LOG_FORMAT` | `json` | `json`, `text` |
 | `FIZZBUZZ_HTTP_ADDRESS` | `:8080` | A `host:port` bind address |
+| `FIZZBUZZ_HTTP_RATE_LIMIT_REQUESTS` | `600` | Requests allowed per client within `FIZZBUZZ_HTTP_RATE_LIMIT_WINDOW` |
+| `FIZZBUZZ_HTTP_RATE_LIMIT_WINDOW` | `1m` | Sliding window for the per-client allowance (Go duration like `30s`, `1m`) |
 
 Connection timeouts are constants rather than configuration.
+
+Each client address gets its own allowance, so one caller cannot spend
+another's. A caller over its allowance gets `429` with a `Retry-After` header.
+`/healthz` and `/readyz` are never limited: an orchestrator polls them far above
+any rate a client would, and restarts what it cannot reach. The address is the
+one the connection came from, never `X-Forwarded-For` — behind a proxy that
+means the proxy's address, so terminate the limit where the real peer is
+visible.
 
 ## Docker
 
