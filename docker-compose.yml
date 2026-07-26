@@ -1,0 +1,22 @@
+services:
+  redis:
+    image: ghcr.io/dragonflydb/dragonfly:latest
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "PING"]
+      interval: 1s
+      timeout: 5s
+      retries: 10
+
+  fizzbuzz:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      FIZZBUZZ_REDIS_ADDRESS: redis:6379
+    depends_on:
+      redis:
+        condition: service_healthy
