@@ -36,11 +36,11 @@ var documentationHTML string
 // FizzBuzzService is declared here rather than in the domain, so the domain
 // stays unaware of transport and a test can substitute a stub.
 type FizzBuzzService interface {
-	FizzBuzz(int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error)
+	FizzBuzz(ctx context.Context, int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error)
 }
 
 type StatisticsReader interface {
-	Top() (statistics.Query, int, error)
+	Top(ctx context.Context) (statistics.Query, int, error)
 }
 
 // New assembles the whole request path into one http.Handler. Building the
@@ -100,10 +100,10 @@ type server struct {
 	isReady    func() bool
 }
 
-func (s *server) PostFizzbuzz(_ context.Context, request PostFizzbuzzRequestObject) (PostFizzbuzzResponseObject, error) {
+func (s *server) PostFizzbuzz(ctx context.Context, request PostFizzbuzzRequestObject) (PostFizzbuzzResponseObject, error) {
 	body := request.Body
 
-	sequence, err := s.svc.FizzBuzz(body.Int1, body.Str1, body.Int2, body.Str2, body.Limit)
+	sequence, err := s.svc.FizzBuzz(ctx, body.Int1, body.Str1, body.Int2, body.Str2, body.Limit)
 	if err != nil {
 		// Validation already guaranteed input the domain accepts, so an error
 		// here means document and domain have diverged — our defect, not theirs.
@@ -117,8 +117,8 @@ func (s *server) PostFizzbuzz(_ context.Context, request PostFizzbuzzRequestObje
 	return PostFizzbuzz200JSONResponse(sequence), nil
 }
 
-func (s *server) GetStatistics(_ context.Context, _ GetStatisticsRequestObject) (GetStatisticsResponseObject, error) {
-	q, hits, err := s.stats.Top()
+func (s *server) GetStatistics(ctx context.Context, _ GetStatisticsRequestObject) (GetStatisticsResponseObject, error) {
+	q, hits, err := s.stats.Top(ctx)
 	if err != nil {
 		if errors.Is(err, statistics.ErrNoHits) {
 			return GetStatistics404JSONResponse{NotFoundJSONResponse{Message: "no statistics recorded yet"}}, nil
@@ -187,28 +187,20 @@ func validationFailed(
 	writeError(w, status, firstLine(err.Error()))
 }
 
-// undecodableRequest keeps the error shape uniform for a body the generated
-// server cannot unmarshal. Validation catches most of these first, but not a
-// number that satisfies the schema and still overflows the Go type it decodes
-// into.
 func undecodableRequest(w http.ResponseWriter, r *http.Request, err error) {
-	writeError(w, http.StatusBadRequest, firstLine(err.Error()))
 	slogx.FromCtx(r.Context()).WarnContext(r.Context(), "undecodable request body", slog.Any("error", err))
+	writeError(w, http.StatusBadRequest, firstLine(err.Error()))
 }
 
 func serverFault(w http.ResponseWriter, r *http.Request, err error) {
 	serverFaultCtx(r.Context(), w, err)
 }
 
-// serverFaultCtx tells the client nothing about the cause: reaching here is our
-// defect, and there is nothing the caller can act on.
 func serverFaultCtx(ctx context.Context, w http.ResponseWriter, err error) {
 	slogx.FromCtx(ctx).ErrorContext(ctx, "request failed", slog.Any("error", err))
 	writeError(w, http.StatusInternalServerError, "internal server error")
 }
 
-// firstLine drops the per-sub-schema detail the validator appends, which
-// restates the same failure without adding information.
 func firstLine(s string) string {
 	line, _, _ := strings.Cut(s, "\n")
 	return line

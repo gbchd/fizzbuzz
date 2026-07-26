@@ -1,10 +1,14 @@
 package fizzbuzz
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
+
+	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
 )
 
 var (
@@ -25,7 +29,15 @@ func NewService() *Service {
 }
 
 // FizzBuzz adapts the README's two-rule parameters into rules for generate.
-func (s *Service) FizzBuzz(int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error) {
+func (s *Service) FizzBuzz(ctx context.Context, int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error) {
+	slogx.FromCtx(ctx).DebugContext(ctx, "fizzbuzz.Service.FizzBuzz",
+		slog.Int("int1", int1),
+		slog.String("str1", str1),
+		slog.Int("int2", int2),
+		slog.String("str2", str2),
+		slog.Int("limit", limit),
+	)
+
 	rule1, err := newRule(int1, str1)
 	if err != nil {
 		return nil, fmt.Errorf("fizzbuzz: rule 1: %w", err)

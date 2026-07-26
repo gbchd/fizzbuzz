@@ -2,6 +2,7 @@ package handler_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -47,7 +48,7 @@ type stubCall struct {
 	limit int
 }
 
-func (s *stubService) FizzBuzz(int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error) {
+func (s *stubService) FizzBuzz(_ context.Context, int1 int, str1 string, int2 int, str2 string, limit int) ([]string, error) {
 	s.got = stubCall{int1: int1, str1: str1, int2: int2, str2: str2, limit: limit}
 
 	return s.sequence, s.err
@@ -61,7 +62,7 @@ type stubStats struct {
 	err   error
 }
 
-func (s stubStats) Top() (statistics.Query, int, error) {
+func (s stubStats) Top(_ context.Context) (statistics.Query, int, error) {
 	return s.query, s.hits, s.err
 }
 

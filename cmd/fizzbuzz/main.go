@@ -37,6 +37,11 @@ const (
 	_readinessDrainDelay = 5 * time.Second
 )
 
+func setupGlobalLogger(logger *slog.Logger) {
+	slog.SetDefault(logger)
+	slog.SetLogLoggerLevel(slog.LevelError)
+}
+
 func run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -51,9 +56,9 @@ func run(ctx context.Context) error {
 		return fmt.Errorf("init logger: %w", err)
 	}
 	ctx = slogx.WithCtx(ctx, logger)
+	ctxlog := context.WithoutCancel(ctx)
 
-	// Catches stdlib and third-party output only, our own code must always go through slogx.FromCtx.
-	slog.SetDefault(logger)
+	setupGlobalLogger(logger)
 
 	var shuttingDown atomic.Bool
 	isReady := func() bool { return !shuttingDown.Load() }
@@ -81,7 +86,7 @@ func run(ctx context.Context) error {
 	// Buffered, so the goroutine never blocks if nobody is left to receive.
 	serveErr := make(chan error, 1)
 	go func() {
-		slogx.FromCtx(ctx).Info("starting server", "address", cfg.HTTP.Address)
+		slogx.FromCtx(ctxlog).InfoContext(ctxlog, "starting server", "address", cfg.HTTP.Address)
 		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			serveErr <- fmt.Errorf("serve: %w", err)
 		}
@@ -95,10 +100,10 @@ func run(ctx context.Context) error {
 
 	stop()
 	shuttingDown.Store(true)
-	slogx.FromCtx(ctx).Info("received shutdown signal, shutting down")
+	slogx.FromCtx(ctxlog).InfoContext(ctxlog, "received shutdown signal, shutting down")
 
 	time.Sleep(_readinessDrainDelay)
-	slogx.FromCtx(ctx).Info("readiness check propagated, now waiting for ongoing requests to finish")
+	slogx.FromCtx(ctxlog).InfoContext(ctxlog, "readiness check propagated, now waiting for ongoing requests to finish")
 
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), _shutdownPeriod)
 	defer cancel()
@@ -106,12 +111,12 @@ func run(ctx context.Context) error {
 	err = server.Shutdown(shutdownCtx)
 	cancelRequests()
 	if err != nil {
-		slogx.FromCtx(ctx).Warn("graceful shutdown timed out, forcing close", "error", err)
+		slogx.FromCtx(ctxlog).ErrorContext(ctxlog, "graceful shutdown timed out, forcing close", "error", err)
 		_ = server.Close()
 		return fmt.Errorf("shutdown: %w", err)
 	}
 
-	slogx.FromCtx(ctx).Info("server shut down gracefully")
+	slogx.FromCtx(ctxlog).InfoContext(ctxlog, "server shut down gracefully")
 	return nil
 }
 

@@ -59,10 +59,10 @@ func TestRepository_Top(t *testing.T) {
 
 			repo := statsmemory.New()
 			for _, q := range tt.queries {
-				repo.Record(q)
+				require.NoError(t, repo.Record(t.Context(), q))
 			}
 
-			gotQuery, gotHits, err := repo.Top()
+			gotQuery, gotHits, err := repo.Top(t.Context())
 
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -96,12 +96,12 @@ func TestRepository_ConcurrentRecord(t *testing.T) {
 			var wg sync.WaitGroup
 			for range tt.goroutines {
 				wg.Go(func() {
-					repo.Record(q)
+					assert.NoError(t, repo.Record(t.Context(), q))
 				})
 			}
 			wg.Wait()
 
-			gotQuery, gotHits, err := repo.Top()
+			gotQuery, gotHits, err := repo.Top(t.Context())
 
 			require.NoError(t, err)
 			assert.Equal(t, q, gotQuery)
