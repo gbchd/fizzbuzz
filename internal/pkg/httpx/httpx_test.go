@@ -3,10 +3,12 @@ package httpx_test
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -15,6 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/gbchd/fizzbuzz/internal/pkg/httpx"
+	"github.com/gbchd/fizzbuzz/internal/pkg/metrics"
 	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
 )
 
@@ -289,6 +292,62 @@ func TestAccessLog(t *testing.T) {
 			assert.Equal(t, tt.path, line["path"])
 			assert.Equal(t, float64(tt.status), line["status"])
 			assert.NotEmpty(t, line["duration"])
+		})
+	}
+}
+
+// Each case uses a path unique to itself, so the underlying global registry
+// never lets one case's assertions see another case's increments.
+func TestMetrics(t *testing.T) {
+	tests := []struct {
+		name    string
+		skip    []string
+		path    string
+		status  int
+		counted bool
+	}{
+		{
+			name:    "a served request is counted",
+			path:    "/test-metrics-served",
+			status:  http.StatusOK,
+			counted: true,
+		},
+		{
+			name:    "the handler's status is recorded, not assumed",
+			path:    "/test-metrics-teapot",
+			status:  http.StatusTeapot,
+			counted: true,
+		},
+		{
+			name:    "a skipped path is not counted",
+			skip:    []string{"/test-metrics-skipped"},
+			path:    "/test-metrics-skipped",
+			status:  http.StatusOK,
+			counted: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			h := httpx.Metrics(tt.skip...)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tt.status)
+			}))
+
+			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, tt.path, nil)
+			rec := httptest.NewRecorder()
+			h.ServeHTTP(rec, req)
+
+			require.Equal(t, tt.status, rec.Code)
+
+			out, err := metrics.Prometheus()
+			require.NoError(t, err)
+
+			line := fmt.Sprintf(`http_requests_total{method=%q,path=%q,status=%q} 1`, http.MethodPost, tt.path, strconv.Itoa(tt.status))
+			if tt.counted {
+				assert.Contains(t, out, line)
+				return
+			}
+			assert.NotContains(t, out, line)
 		})
 	}
 }

@@ -8,6 +8,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/gbchd/fizzbuzz/internal/pkg/metrics"
 	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
 )
 
@@ -78,6 +79,28 @@ func AccessLog(skip ...string) Middleware {
 				slog.Int("status", recorder.status),
 				slog.Duration("duration", time.Since(start)),
 			)
+		})
+	}
+}
+
+// Metrics records a request counter and duration histogram per method, path,
+// and status. Paths given in skip are left unrecorded, for the same reason
+// AccessLog leaves them unlogged: a scraper polling its own endpoint forever
+// is infrastructure noise, not a data point.
+func Metrics(skip ...string) Middleware {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if slices.Contains(skip, r.URL.Path) {
+				next.ServeHTTP(w, r)
+				return
+			}
+
+			recorder := &rwrecorder{ResponseWriter: w, status: http.StatusOK}
+			start := time.Now()
+
+			next.ServeHTTP(recorder, r)
+
+			metrics.RecordHTTPRequest(r.Method, r.URL.Path, recorder.status, start)
 		})
 	}
 }

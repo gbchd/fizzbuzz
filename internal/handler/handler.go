@@ -16,6 +16,7 @@ import (
 	nethttpmiddleware "github.com/oapi-codegen/nethttp-middleware"
 
 	"github.com/gbchd/fizzbuzz/internal/pkg/httpx"
+	"github.com/gbchd/fizzbuzz/internal/pkg/metrics"
 	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
 	"github.com/gbchd/fizzbuzz/internal/service/statistics"
 )
@@ -29,6 +30,9 @@ const (
 	// few seconds and would bury real traffic.
 	healthPath = "/healthz"
 	readyPath  = "/readyz"
+
+	// scraped forever by a collector, same reasoning as healthPath/readyPath.
+	metricsPath = "/metrics"
 )
 
 //go:embed documentation.gen.html
@@ -94,8 +98,9 @@ func New(svc FizzBuzzService, stats StatisticsReader, isReady func() bool, limit
 		Handler(strict),
 		httpx.LimitRequestBody(maxRequestBodyBytes),
 		httpx.RequestID,
-		httpx.AccessLog(healthPath, readyPath),
-		httpx.RateLimit(limit.Requests, limit.Window, tooManyRequests, healthPath, readyPath),
+		httpx.AccessLog(healthPath, readyPath, metricsPath),
+		httpx.Metrics(healthPath, readyPath, metricsPath),
+		httpx.RateLimit(limit.Requests, limit.Window, tooManyRequests, healthPath, readyPath, metricsPath),
 		validate,
 	), nil
 }
@@ -167,6 +172,15 @@ func (s *server) GetDocumentation(_ context.Context, _ GetDocumentationRequestOb
 		Body:          strings.NewReader(documentationHTML),
 		ContentLength: int64(len(documentationHTML)),
 	}, nil
+}
+
+func (s *server) GetMetrics(_ context.Context, _ GetMetricsRequestObject) (GetMetricsResponseObject, error) {
+	body, err := metrics.Prometheus()
+	if err != nil {
+		return nil, fmt.Errorf("gather metrics: %w", err)
+	}
+
+	return GetMetrics200TextResponse(body), nil
 }
 
 // writeError uses the one shape the document declares, so a client needs only

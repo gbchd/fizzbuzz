@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/redis/rueidis"
 
+	"github.com/gbchd/fizzbuzz/internal/pkg/metrics"
 	"github.com/gbchd/fizzbuzz/internal/service/statistics"
 )
 
@@ -34,7 +36,11 @@ func (r *Repository) Record(ctx context.Context, q statistics.Query) error {
 	}
 
 	cmd := r.client.B().Zincrby().Key(queriesKey).Increment(1).Member(member).Build()
-	if err := r.client.Do(ctx, cmd).Error(); err != nil {
+
+	start := time.Now()
+	err = r.client.Do(ctx, cmd).Error()
+	metrics.RecordRedisRequest("record", start, err)
+	if err != nil {
 		return fmt.Errorf("statsredis: record: %w", err)
 	}
 
@@ -46,7 +52,9 @@ func (r *Repository) Record(ctx context.Context, q statistics.Query) error {
 func (r *Repository) Top(ctx context.Context) (statistics.Query, int, error) {
 	cmd := r.client.B().Zrevrange().Key(queriesKey).Start(0).Stop(0).Withscores().Build()
 
+	start := time.Now()
 	scores, err := r.client.Do(ctx, cmd).AsZScores()
+	metrics.RecordRedisRequest("top", start, err)
 	if err != nil {
 		return statistics.Query{}, 0, fmt.Errorf("statsredis: top: %w", err)
 	}

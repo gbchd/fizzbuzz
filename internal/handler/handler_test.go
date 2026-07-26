@@ -597,6 +597,12 @@ func TestAccessLog(t *testing.T) {
 			request:  func(t *testing.T) *http.Request { t.Helper(); return get(t, "/readyz") },
 			wantLine: nil,
 		},
+		{
+			// A scraper polls forever, the same reasoning as the probes above.
+			name:     "the metrics scrape is not logged",
+			request:  func(t *testing.T) *http.Request { t.Helper(); return get(t, "/metrics") },
+			wantLine: nil,
+		},
 	}
 
 	for _, tt := range tests {
@@ -683,10 +689,18 @@ func TestDefinition(t *testing.T) {
 
 	assert.True(t, strings.HasPrefix(doc.OpenAPI, "3.0"), "got %q", doc.OpenAPI)
 
-	paths := []string{"/fizzbuzz", "/healthz", "/readyz", "/definition", "/documentation", "/statistics"}
+	paths := []string{"/fizzbuzz", "/healthz", "/readyz", "/definition", "/documentation", "/statistics", "/metrics"}
 	for _, path := range paths {
 		assert.Contains(t, doc.Paths, path)
 	}
+}
+
+func TestMetrics(t *testing.T) {
+	resp := serve(t, fizzbuzz.NewService(), get(t, "/metrics"))
+
+	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
+	assert.Equal(t, "text/plain", resp.header.Get("Content-Type"))
+	assert.Contains(t, string(resp.body), "go_goroutines", "process metrics must be exposed alongside custom ones")
 }
 
 func TestDocumentation(t *testing.T) {
