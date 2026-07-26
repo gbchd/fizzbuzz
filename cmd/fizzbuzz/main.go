@@ -111,7 +111,7 @@ func run(ctx context.Context) error {
 	err = server.Shutdown(shutdownCtx)
 	cancelRequests()
 	if err != nil {
-		slogx.FromCtx(ctxlog).WarnContext(ctxlog, "graceful shutdown timed out, forcing close", "error", err)
+		slogx.FromCtx(ctxlog).ErrorContext(ctxlog, "graceful shutdown timed out, forcing close", "error", err)
 		_ = server.Close()
 		return fmt.Errorf("shutdown: %w", err)
 	}

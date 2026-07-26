@@ -141,6 +141,7 @@ components:
           type: integer
           description: First divisor.
           minimum: 1
+          maximum: 2147483647
           example: 3
         str1:
           type: string
@@ -151,6 +152,7 @@ components:
           type: integer
           description: Second divisor.
           minimum: 1
+          maximum: 2147483647
           example: 5
         str2:
           type: string
