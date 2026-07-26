@@ -2,6 +2,7 @@ package config_test
 
 import (
 	"log/slog"
+	"maps"
 	"os"
 	"testing"
 	"time"
@@ -19,7 +20,12 @@ const (
 	addressVar  = "FIZZBUZZ_HTTP_ADDRESS"
 	requestsVar = "FIZZBUZZ_HTTP_RATE_LIMIT_REQUESTS"
 	windowVar   = "FIZZBUZZ_HTTP_RATE_LIMIT_WINDOW"
+	redisVar    = "FIZZBUZZ_REDIS_ADDRESS"
 )
+
+// baseRedisAddress is injected by setEnv for every case unless a case
+// overrides it, since Redis has no default.
+const baseRedisAddress = "localhost:6379"
 
 // defaults lets each case below state only what it changes.
 var defaults = config.Config{
@@ -32,6 +38,9 @@ var defaults = config.Config{
 		RateLimitRequests: 600,
 		RateLimitWindow:   time.Minute,
 	},
+	Redis: config.RedisConfig{
+		Address: baseRedisAddress,
+	},
 }
 
 // setEnv makes the environment match env exactly, clearing anything inherited
@@ -39,8 +48,11 @@ var defaults = config.Config{
 func setEnv(t *testing.T, env map[string]string) {
 	t.Helper()
 
-	for _, key := range []string{levelVar, formatVar, addressVar, requestsVar, windowVar} {
-		value, ok := env[key]
+	merged := map[string]string{redisVar: baseRedisAddress}
+	maps.Copy(merged, env)
+
+	for _, key := range []string{levelVar, formatVar, addressVar, requestsVar, windowVar, redisVar} {
+		value, ok := merged[key]
 		t.Setenv(key, value) // registers restoration of the original value
 		if !ok {
 			require.NoError(t, os.Unsetenv(key))
@@ -67,6 +79,7 @@ func TestLoad(t *testing.T) {
 				addressVar:  "127.0.0.1:9090",
 				requestsVar: "50",
 				windowVar:   "30s",
+				redisVar:    "redis.internal:6380",
 			},
 			override: func(cfg *config.Config) {
 				cfg.Log.Level = slog.LevelDebug
@@ -74,6 +87,7 @@ func TestLoad(t *testing.T) {
 				cfg.HTTP.Address = "127.0.0.1:9090"
 				cfg.HTTP.RateLimitRequests = 50
 				cfg.HTTP.RateLimitWindow = 30 * time.Second
+				cfg.Redis.Address = "redis.internal:6380"
 			},
 		},
 		{
@@ -114,6 +128,11 @@ func TestLoad(t *testing.T) {
 		{
 			name:    "a window of zero is refused",
 			env:     map[string]string{windowVar: "0s"},
+			wantErr: true,
+		},
+		{
+			name:    "missing redis address is refused",
+			env:     map[string]string{redisVar: ""},
 			wantErr: true,
 		},
 	}

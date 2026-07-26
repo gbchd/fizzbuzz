@@ -17,8 +17,9 @@ const envPrefix = "FIZZBUZZ_"
 
 // Config is the application's configuration.
 type Config struct {
-	Log  LogConfig  `envPrefix:"LOG_"`
-	HTTP HTTPConfig `envPrefix:"HTTP_"`
+	Log   LogConfig   `envPrefix:"LOG_"`
+	HTTP  HTTPConfig  `envPrefix:"HTTP_"`
+	Redis RedisConfig `envPrefix:"REDIS_"`
 }
 
 // HTTPConfig holds only what an operator has to match to their platform; the
@@ -40,6 +41,11 @@ type LogConfig struct {
 	Format slogx.Format `env:"FORMAT" envDefault:"json"`
 }
 
+// RedisConfig holds a required connection string for the statistics repository.
+type RedisConfig struct {
+	Address string `env:"ADDRESS"`
+}
+
 // Load reads the configuration from the environment, defaulting any variable
 // that is unset or empty.
 func Load() (Config, error) {
@@ -55,6 +61,10 @@ func Load() (Config, error) {
 	}
 	if cfg.HTTP.RateLimitWindow <= 0 {
 		return Config{}, fmt.Errorf("config: %sHTTP_RATE_LIMIT_WINDOW must be greater than 0, got %s", envPrefix, cfg.HTTP.RateLimitWindow)
+	}
+
+	if cfg.Redis.Address == "" {
+		return Config{}, fmt.Errorf("config: %sREDIS_ADDRESS must be set", envPrefix)
 	}
 
 	return cfg, nil
