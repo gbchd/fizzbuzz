@@ -27,6 +27,8 @@ paths:
               schema:
                 type: object
                 description: An OpenAPI 3.0.3 document.
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /documentation:
     get:
@@ -44,6 +46,8 @@ paths:
               schema:
                 type: string
                 format: binary
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /healthz:
     get:
@@ -95,6 +99,8 @@ paths:
                 $ref: '#/components/schemas/Statistics'
         '404':
           $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
 
   /fizzbuzz:
     post:
@@ -121,6 +127,8 @@ paths:
           $ref: '#/components/responses/BadRequest'
         '405':
           $ref: '#/components/responses/MethodNotAllowed'
+        '429':
+          $ref: '#/components/responses/TooManyRequests'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -249,6 +257,22 @@ components:
 
     NotFound:
       description: Nothing matches the request.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Error'
+
+    TooManyRequests:
+      description: |
+        The client has spent its request allowance. `Retry-After` gives the
+        seconds to wait. The allowance is per client address, so this reflects
+        only the caller's own traffic. The probe paths are never limited.
+      headers:
+        Retry-After:
+          description: Seconds to wait before retrying.
+          schema:
+            type: integer
+            example: 1
       content:
         application/json:
           schema:

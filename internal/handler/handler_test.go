@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -102,7 +103,9 @@ func newHandler(t *testing.T, svc handler.FizzBuzzService, ready bool) http.Hand
 func newHandlerWithStats(t *testing.T, svc handler.FizzBuzzService, stats handler.StatisticsReader, ready bool) http.Handler {
 	t.Helper()
 
-	h, err := handler.New(svc, stats, func() bool { return ready })
+	// An allowance far above what any case here spends, so the limiter never
+	// decides the outcome of a test aimed at something else.
+	h, err := handler.New(svc, stats, func() bool { return ready }, handler.RateLimit{Requests: 10_000, Window: time.Hour})
 	require.NoError(t, err)
 
 	return h

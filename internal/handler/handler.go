@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"
@@ -43,12 +44,18 @@ type StatisticsReader interface {
 	Top(ctx context.Context) (statistics.Query, int, error)
 }
 
+// RateLimit is what one client may spend: Requests over each sliding Window.
+type RateLimit struct {
+	Requests int
+	Window   time.Duration
+}
+
 // New assembles the whole request path into one http.Handler. Building the
 // chain in one place is what keeps its order defined once.
 //
 // isReady is what GET /readyz reports. Injected rather than held here, so
 // lifecycle state stays with the entrypoint that owns the shutdown signal.
-func New(svc FizzBuzzService, stats StatisticsReader, isReady func() bool) (http.Handler, error) {
+func New(svc FizzBuzzService, stats StatisticsReader, isReady func() bool, limit RateLimit) (http.Handler, error) {
 	spec, err := GetSpec()
 	if err != nil {
 		return nil, fmt.Errorf("handler: load embedded spec: %w", err)
@@ -88,9 +95,16 @@ func New(svc FizzBuzzService, stats StatisticsReader, isReady func() bool) (http
 		httpx.LimitRequestBody(maxRequestBodyBytes),
 		httpx.RequestID,
 		httpx.AccessLog(healthPath, readyPath),
+		httpx.RateLimit(limit.Requests, limit.Window, tooManyRequests, healthPath, readyPath),
 		validate,
 	), nil
 }
+
+// tooManyRequests keeps the error shape uniform for a caller over its
+// allowance. How long to wait is in Retry-After, which the middleware sets.
+var tooManyRequests = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	writeError(w, http.StatusTooManyRequests, "too many requests")
+})
 
 // server implements the generated StrictServerInterface.
 type server struct {
