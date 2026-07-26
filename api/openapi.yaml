@@ -83,6 +83,19 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /metrics:
+    get:
+      operationId: getMetrics
+      summary: Prometheus-format metrics
+      description: Returns this instance's metrics in Prometheus exposition format.
+      responses:
+        '200':
+          description: The registered metrics, Prometheus exposition format.
+          content:
+            text/plain:
+              schema:
+                type: string
+
   /statistics:
     get:
       operationId: getStatistics

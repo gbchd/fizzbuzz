@@ -11,6 +11,7 @@ import (
 	"github.com/testcontainers/testcontainers-go"
 	"github.com/testcontainers/testcontainers-go/wait"
 
+	"github.com/gbchd/fizzbuzz/internal/pkg/metrics"
 	"github.com/gbchd/fizzbuzz/internal/repository/stats/statsredis"
 	"github.com/gbchd/fizzbuzz/internal/service/statistics"
 )
@@ -165,6 +166,48 @@ func TestRepository_TieBreak(t *testing.T) {
 				}
 			}
 			assert.Equal(t, winner, want)
+		})
+	}
+}
+
+// TestRepository_ErrorMetrics confirms that failed calls to Record and Top are counted in the Prometheus metrics.
+func TestRepository_ErrorMetrics(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		operation string
+		call      func(repo *statsredis.Repository) error
+	}{
+		{
+			name:      "a failed Record is counted",
+			operation: "record",
+			call: func(repo *statsredis.Repository) error {
+				return repo.Record(t.Context(), statistics.Query{Int1: 1, Str1: "a", Int2: 2, Str2: "b", Limit: 3})
+			},
+		},
+		{
+			name:      "a failed Top is counted",
+			operation: "top",
+			call: func(repo *statsredis.Repository) error {
+				_, _, err := repo.Top(t.Context())
+				return err
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
+			repo, client := newRepository(t)
+			client.Close() // the connection is gone, so the next call must fail
+
+			require.Error(t, tt.call(repo))
+
+			out, err := metrics.Prometheus()
+			require.NoError(t, err)
+			assert.Contains(t, out, `statsredis_errors_total{operation="`+tt.operation+`"} 1`)
 		})
 	}
 }
