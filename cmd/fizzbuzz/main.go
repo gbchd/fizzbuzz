@@ -13,10 +13,12 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/redis/rueidis"
+
 	"github.com/gbchd/fizzbuzz/internal/config"
 	"github.com/gbchd/fizzbuzz/internal/handler"
 	"github.com/gbchd/fizzbuzz/internal/pkg/slogx"
-	"github.com/gbchd/fizzbuzz/internal/repository/stats/statsmemory"
+	"github.com/gbchd/fizzbuzz/internal/repository/stats/statsredis"
 	"github.com/gbchd/fizzbuzz/internal/service/fizzbuzz"
 	"github.com/gbchd/fizzbuzz/internal/service/statistics"
 )
@@ -42,6 +44,21 @@ func setupGlobalLogger(logger *slog.Logger) {
 	slog.SetLogLoggerLevel(slog.LevelError)
 }
 
+func connectRedis(ctx context.Context, address string) (rueidis.Client, error) {
+	client, err := rueidis.NewClient(rueidis.ClientOption{InitAddress: []string{address}, DisableCache: true})
+	if err != nil {
+		return nil, fmt.Errorf("init redis client: %w", err)
+	}
+
+	if err := client.Do(ctx, client.B().Ping().Build()).Error(); err != nil {
+		client.Close()
+		return nil, fmt.Errorf("connect to redis at %s: %w", address, err)
+	}
+
+	slogx.FromCtx(ctx).InfoContext(ctx, "connected to redis", "address", address)
+	return client, nil
+}
+
 func run(ctx context.Context) error {
 	ctx, stop := signal.NotifyContext(ctx, syscall.SIGINT, syscall.SIGTERM)
 	defer stop()
@@ -60,10 +77,16 @@ func run(ctx context.Context) error {
 
 	setupGlobalLogger(logger)
 
+	redisClient, err := connectRedis(ctxlog, cfg.Redis.Address)
+	if err != nil {
+		return err
+	}
+	defer redisClient.Close()
+
 	var shuttingDown atomic.Bool
 	isReady := func() bool { return !shuttingDown.Load() }
 
-	svc := statistics.NewRecorder(fizzbuzz.NewService(), statsmemory.New())
+	svc := statistics.NewRecorder(fizzbuzz.NewService(), statsredis.New(redisClient))
 
 	rateLimit := handler.RateLimit{
 		Requests: cfg.HTTP.RateLimitRequests,
