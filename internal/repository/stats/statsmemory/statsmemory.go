@@ -1,6 +1,7 @@
 package statsmemory
 
 import (
+	"context"
 	"sync"
 
 	"github.com/gbchd/fizzbuzz/internal/service/statistics"
@@ -26,7 +27,7 @@ func New() *Repository {
 	return &Repository{hits: make(map[statistics.Query]int)}
 }
 
-func (r *Repository) Record(q statistics.Query) {
+func (r *Repository) Record(_ context.Context, q statistics.Query) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -38,9 +39,11 @@ func (r *Repository) Record(q statistics.Query) {
 		r.topHits = count
 		r.hasHits = true
 	}
+
+	return nil
 }
 
-func (r *Repository) Top() (statistics.Query, int, error) {
+func (r *Repository) Top(_ context.Context) (statistics.Query, int, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 

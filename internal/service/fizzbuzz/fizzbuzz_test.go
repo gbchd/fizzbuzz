@@ -55,7 +55,7 @@ func TestService_FizzBuzz(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := svc.FizzBuzz(tt.int1, tt.str1, tt.int2, tt.str2, tt.limit)
+			got, err := svc.FizzBuzz(t.Context(), tt.int1, tt.str1, tt.int2, tt.str2, tt.limit)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
 				return
