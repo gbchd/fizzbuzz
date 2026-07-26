@@ -198,7 +198,7 @@ func TestRequestIDReachesEveryLogLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			h := httpx.Chain(
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-					slogx.FromCtx(r.Context()).Info("from the handler")
+					slogx.FromCtx(r.Context()).InfoContext(r.Context(), "from the handler")
 					w.WriteHeader(http.StatusOK)
 				}),
 				httpx.RequestID,

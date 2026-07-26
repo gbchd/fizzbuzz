@@ -71,7 +71,8 @@ func AccessLog(skip ...string) Middleware {
 
 			next.ServeHTTP(recorder, r)
 
-			slogx.FromCtx(r.Context()).Info("handled request",
+			ctx := r.Context()
+			slogx.FromCtx(ctx).InfoContext(ctx, "handled request",
 				slog.String("method", r.Method),
 				slog.String("path", r.URL.Path),
 				slog.Int("status", recorder.status),

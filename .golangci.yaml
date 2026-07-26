@@ -47,6 +47,7 @@ linters:
     sloglint:
       msg-style: lowercased
       no-global: all
+      context: all
 
   exclusions:
     presets:
