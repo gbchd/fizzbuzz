@@ -51,6 +51,8 @@ func logged(t *testing.T, h http.Handler, req *http.Request) (*httptest.Response
 }
 
 func TestChain(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		labels []string
@@ -70,6 +72,8 @@ func TestChain(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			var order []string
 
 			middlewares := make([]httpx.Middleware, 0, len(tt.labels))
@@ -95,6 +99,8 @@ func TestChain(t *testing.T) {
 }
 
 func TestLimitRequestBody(t *testing.T) {
+	t.Parallel()
+
 	const maxBytes = 16
 
 	tests := []struct {
@@ -116,6 +122,8 @@ func TestLimitRequestBody(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			var readErr error
 			h := httpx.LimitRequestBody(maxBytes)(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 				_, readErr = io.ReadAll(r.Body)
@@ -135,6 +143,8 @@ func TestLimitRequestBody(t *testing.T) {
 }
 
 func TestRequestID(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		inbound string
@@ -160,6 +170,8 @@ func TestRequestID(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodGet, "/", nil)
 			if tt.inbound != "" {
 				req.Header.Set(httpx.RequestIDHeader, tt.inbound)
@@ -189,6 +201,8 @@ func TestRequestID(t *testing.T) {
 // middleware carries it, the access log's own included: a line whose
 // request_id is empty is the regression this pins down.
 func TestRequestIDReachesEveryLogLine(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		inbound string
@@ -199,6 +213,8 @@ func TestRequestIDReachesEveryLogLine(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := httpx.Chain(
 				http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					slogx.FromCtx(r.Context()).InfoContext(r.Context(), "from the handler")
@@ -235,6 +251,8 @@ func TestRequestIDReachesEveryLogLine(t *testing.T) {
 }
 
 func TestAccessLog(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		skip       []string
@@ -272,6 +290,8 @@ func TestAccessLog(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := httpx.AccessLog(tt.skip...)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.status)
 			}))
@@ -299,6 +319,8 @@ func TestAccessLog(t *testing.T) {
 // Each case uses a path unique to itself, so the underlying global registry
 // never lets one case's assertions see another case's increments.
 func TestMetrics(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		skip    []string
@@ -329,6 +351,8 @@ func TestMetrics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := httpx.Metrics(tt.skip...)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(tt.status)
 			}))
@@ -354,6 +378,8 @@ func TestMetrics(t *testing.T) {
 
 // A wrapped writer must not quietly drop what the real one can do.
 func TestAccessLogPreservesResponseWriterBehaviour(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		body string
@@ -363,6 +389,8 @@ func TestAccessLogPreservesResponseWriterBehaviour(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := httpx.AccessLog()(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				// io.Copy, the way a reader-backed response is served.
 				_, err := io.Copy(w, strings.NewReader(tt.body))

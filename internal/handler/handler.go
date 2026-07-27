@@ -35,6 +35,12 @@ const (
 	metricsPath = "/metrics"
 )
 
+func init() {
+	// Global because kin-openapi offers no per-request switch. If left enabled,
+	// validation errors can echo schema details and submitted values back to the client.
+	openapi3.SchemaErrorDetailsDisabled = true
+}
+
 //go:embed documentation.gen.html
 var documentationHTML string
 
@@ -74,10 +80,6 @@ func New(svc FizzBuzzService, stats StatisticsReader, isReady func() bool, limit
 	if err := json.Unmarshal(definitionJSON, &definition); err != nil {
 		return nil, fmt.Errorf("handler: decode embedded spec: %w", err)
 	}
-
-	// Global because kin-openapi offers no per-request switch. If left enabled,
-	// validation errors can echo schema details and submitted values back to the client.
-	openapi3.SchemaErrorDetailsDisabled = true
 
 	strict := NewStrictHandlerWithOptions(
 		&server{svc: svc, stats: stats, definition: definition, isReady: isReady},

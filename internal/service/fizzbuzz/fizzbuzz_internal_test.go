@@ -15,6 +15,8 @@ func must[T any](v T, err error) T {
 }
 
 func TestNewRule(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		divisor     int
@@ -29,6 +31,8 @@ func TestNewRule(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, err := newRule(tt.divisor, tt.replacement)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
@@ -40,6 +44,8 @@ func TestNewRule(t *testing.T) {
 }
 
 func TestGenerate(t *testing.T) {
+	t.Parallel()
+
 	fizz := must(newRule(3, "fizz"))
 	buzz := must(newRule(5, "buzz"))
 	blank := must(newRule(7, ""))
@@ -91,6 +97,8 @@ func TestGenerate(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got, err := generate(tt.limit, tt.rules)
 			if tt.wantErr != nil {
 				require.ErrorIs(t, err, tt.wantErr)
