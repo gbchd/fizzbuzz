@@ -16,6 +16,8 @@ import (
 // Each case uses a path unique to itself, so the underlying global registry
 // never lets one case's assertions see another case's increments.
 func TestRecordHTTPRequest(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		method string
@@ -28,6 +30,8 @@ func TestRecordHTTPRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			metrics.RecordHTTPRequest(tt.method, tt.path, tt.status, time.Now())
 
 			out, err := metrics.Prometheus()
@@ -41,6 +45,8 @@ func TestRecordHTTPRequest(t *testing.T) {
 }
 
 func TestRecordRedisRequest(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name      string
 		operation string
@@ -52,6 +58,8 @@ func TestRecordRedisRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			metrics.RecordRedisRequest(tt.operation, time.Now(), tt.err)
 
 			out, err := metrics.Prometheus()
@@ -70,6 +78,8 @@ func TestRecordRedisRequest(t *testing.T) {
 }
 
 func TestPrometheusIncludesProcessMetrics(t *testing.T) {
+	t.Parallel()
+
 	out, err := metrics.Prometheus()
 	require.NoError(t, err)
 	assert.Contains(t, out, "go_goroutines")

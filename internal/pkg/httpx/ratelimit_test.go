@@ -20,6 +20,8 @@ var rejected = http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 })
 
 func TestRateLimit(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		requests   int
@@ -89,6 +91,8 @@ func TestRateLimit(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			// A window too long to roll over mid-test, so the case measures the
 			// allowance alone.
 			h := httpx.RateLimit(tt.requests, time.Hour, rejected, tt.skip...)(okHandler)
@@ -111,6 +115,8 @@ func TestRateLimit(t *testing.T) {
 }
 
 func TestRateLimitRejectionIsTheCallersResponse(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name           string
 		window         time.Duration
@@ -121,6 +127,8 @@ func TestRateLimitRejectionIsTheCallersResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := httpx.RateLimit(1, tt.window, rejected)(okHandler)
 
 			req := httptest.NewRequestWithContext(t.Context(), http.MethodPost, "/fizzbuzz", nil)
@@ -141,6 +149,8 @@ func TestRateLimitRejectionIsTheCallersResponse(t *testing.T) {
 }
 
 func TestRateLimitUnderConcurrency(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		requests int
@@ -151,6 +161,8 @@ func TestRateLimitUnderConcurrency(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := httpx.RateLimit(tt.requests, time.Hour, rejected)(okHandler)
 
 			var allowed atomic.Int64

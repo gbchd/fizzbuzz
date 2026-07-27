@@ -17,6 +17,8 @@ type levelCheck struct {
 }
 
 func TestFormatUnmarshalText(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		text    string
@@ -52,6 +54,8 @@ func TestFormatUnmarshalText(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			var got slogx.Format
 			err := got.UnmarshalText([]byte(tt.text))
 
@@ -68,6 +72,8 @@ func TestFormatUnmarshalText(t *testing.T) {
 }
 
 func TestNew(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		level   slog.Level
@@ -104,6 +110,8 @@ func TestNew(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			logger, err := slogx.New(tt.level, tt.format)
 
 			if tt.wantErr {
@@ -123,6 +131,8 @@ func TestNew(t *testing.T) {
 }
 
 func TestFromCtx(t *testing.T) {
+	t.Parallel()
+
 	customLogger, err := slogx.New(slog.LevelDebug, slogx.FormatText)
 	require.NoError(t, err)
 
@@ -146,6 +156,8 @@ func TestFromCtx(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			got := slogx.FromCtx(tt.ctx)
 			require.NotNil(t, got)
 
@@ -160,6 +172,8 @@ func TestFromCtx(t *testing.T) {
 }
 
 func TestWithCtx(t *testing.T) {
+	t.Parallel()
+
 	type otherKey struct{}
 
 	tests := []struct {
@@ -178,6 +192,8 @@ func TestWithCtx(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			logger, err := slogx.New(slog.LevelInfo, slogx.FormatJSON)
 			require.NoError(t, err)
 

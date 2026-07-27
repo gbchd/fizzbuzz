@@ -183,6 +183,8 @@ func newRequest(t *testing.T, method, path, body string) *http.Request {
 }
 
 func TestPostFizzbuzz(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		body string
@@ -207,6 +209,8 @@ func TestPostFizzbuzz(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := serve(t, fizzbuzz.NewService(), postFizzbuzz(t, tt.body))
 
 			require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
@@ -222,6 +226,8 @@ func TestPostFizzbuzz(t *testing.T) {
 // What the sequence itself contains is the domain's business; that the body's
 // fields arrive in the right positions is this layer's.
 func TestPostFizzbuzzPassesRequestFieldsToTheService(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		body string
@@ -242,6 +248,8 @@ func TestPostFizzbuzzPassesRequestFieldsToTheService(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			svc := &stubService{sequence: []string{"x"}}
 
 			resp := serve(t, svc, postFizzbuzz(t, tt.body))
@@ -255,6 +263,8 @@ func TestPostFizzbuzzPassesRequestFieldsToTheService(t *testing.T) {
 // The ceiling is capacity policy the document states, so both sides of it are
 // this layer's to enforce.
 func TestPostFizzbuzzEnforcesTheLimitCeiling(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		limit      int
@@ -276,6 +286,8 @@ func TestPostFizzbuzzEnforcesTheLimitCeiling(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			body := `{"int1":3,"str1":"fizz","int2":5,"str2":"buzz","limit":` + strconv.Itoa(tt.limit) + `}`
 
 			resp := serve(t, fizzbuzz.NewService(), postFizzbuzz(t, body))
@@ -293,6 +305,8 @@ func TestPostFizzbuzzEnforcesTheLimitCeiling(t *testing.T) {
 }
 
 func TestPostFizzbuzzRejectsInvalidRequests(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		body string
@@ -347,6 +361,8 @@ func TestPostFizzbuzzRejectsInvalidRequests(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := serve(t, fizzbuzz.NewService(), postFizzbuzz(t, tt.body))
 
 			require.Equal(t, http.StatusBadRequest, resp.status, "body: %s", resp.body)
@@ -364,6 +380,8 @@ func TestPostFizzbuzzRejectsInvalidRequests(t *testing.T) {
 // The document declares one request media type, and the validator holds callers
 // to it before the body is ever decoded.
 func TestPostFizzbuzzRequiresAJSONContentType(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		contentType string
@@ -393,6 +411,8 @@ func TestPostFizzbuzzRequiresAJSONContentType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := serve(t, fizzbuzz.NewService(), postFizzbuzzAs(t, tt.contentType, validBody))
 
 			require.Equal(t, tt.wantStatus, resp.status, "body: %s", resp.body)
@@ -410,6 +430,8 @@ func TestPostFizzbuzzRequiresAJSONContentType(t *testing.T) {
 // A service error means the document and the domain have diverged, which is our
 // fault, not the caller's.
 func TestPostFizzbuzzReportsServiceErrorsAsServerFaults(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name string
 		err  error
@@ -422,6 +444,8 @@ func TestPostFizzbuzzReportsServiceErrorsAsServerFaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := serve(t, &stubService{err: tt.err}, postFizzbuzz(t, validBody))
 
 			require.Equal(t, http.StatusInternalServerError, resp.status, "body: %s", resp.body)
@@ -438,6 +462,8 @@ func TestPostFizzbuzzReportsServiceErrorsAsServerFaults(t *testing.T) {
 // The document declares an array, so an empty result has to encode as one. A
 // nil slice would go out as null and break a client that trusts the schema.
 func TestPostFizzbuzzAlwaysEncodesAnArray(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name     string
 		sequence []string
@@ -448,6 +474,8 @@ func TestPostFizzbuzzAlwaysEncodesAnArray(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := serve(t, &stubService{sequence: tt.sequence}, postFizzbuzz(t, validBody))
 
 			require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
@@ -457,6 +485,8 @@ func TestPostFizzbuzzAlwaysEncodesAnArray(t *testing.T) {
 }
 
 func TestGetStatistics(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		stats      stubStats
@@ -490,6 +520,8 @@ func TestGetStatistics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := newHandlerWithStats(t, fizzbuzz.NewService(), tt.stats, true)
 
 			resp, _ := serveHandler(t, h, get(t, "/statistics"))
@@ -517,6 +549,8 @@ func TestGetStatistics(t *testing.T) {
 // value — belongs to httpx. What matters here is that the chain includes it, on
 // every response a client can get.
 func TestRequestIDIsStampedOnEveryResponse(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name       string
 		svc        handler.FizzBuzzService
@@ -551,6 +585,8 @@ func TestRequestIDIsStampedOnEveryResponse(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := serve(t, tt.svc, tt.request(t))
 
 			require.Equal(t, tt.wantStatus, resp.status, "body: %s", resp.body)
@@ -561,6 +597,8 @@ func TestRequestIDIsStampedOnEveryResponse(t *testing.T) {
 }
 
 func TestAccessLog(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name    string
 		request func(t *testing.T) *http.Request
@@ -607,6 +645,8 @@ func TestAccessLog(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			_, lines := serveCapturingLogs(t, fizzbuzz.NewService(), tt.request(t))
 
 			if tt.wantLine == nil {
@@ -627,6 +667,8 @@ func TestAccessLog(t *testing.T) {
 }
 
 func TestHealthz(t *testing.T) {
+	t.Parallel()
+
 	resp := serve(t, fizzbuzz.NewService(), get(t, "/healthz"))
 
 	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
@@ -640,6 +682,8 @@ func TestHealthz(t *testing.T) {
 // Readiness must turn 503 the moment shutdown starts, so a load balancer stops
 // routing before the drain, while liveness stays 200 so nothing restarts us.
 func TestReadiness(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name        string
 		ready       bool
@@ -662,6 +706,8 @@ func TestReadiness(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			h := newHandler(t, fizzbuzz.NewService(), tt.ready)
 
 			readyz, _ := serveHandler(t, h, get(t, "/readyz"))
@@ -676,6 +722,8 @@ func TestReadiness(t *testing.T) {
 }
 
 func TestDefinition(t *testing.T) {
+	t.Parallel()
+
 	resp := serve(t, fizzbuzz.NewService(), get(t, "/definition"))
 
 	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
@@ -696,6 +744,8 @@ func TestDefinition(t *testing.T) {
 }
 
 func TestMetrics(t *testing.T) {
+	t.Parallel()
+
 	resp := serve(t, fizzbuzz.NewService(), get(t, "/metrics"))
 
 	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
@@ -704,6 +754,8 @@ func TestMetrics(t *testing.T) {
 }
 
 func TestDocumentation(t *testing.T) {
+	t.Parallel()
+
 	resp := serve(t, fizzbuzz.NewService(), get(t, "/documentation"))
 
 	require.Equal(t, http.StatusOK, resp.status, "body: %s", resp.body)
@@ -715,6 +767,8 @@ func TestDocumentation(t *testing.T) {
 // Nothing is registered outside the generated router, so a path the document
 // does not declare is refused rather than reaching a handler.
 func TestUndeclaredRequestsAreRefused(t *testing.T) {
+	t.Parallel()
+
 	tests := []struct {
 		name   string
 		method string
@@ -737,6 +791,8 @@ func TestUndeclaredRequestsAreRefused(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+
 			resp := serve(t, fizzbuzz.NewService(), newRequest(t, tt.method, tt.path, ""))
 
 			require.Equal(t, tt.want, resp.status, "body: %s", resp.body)
