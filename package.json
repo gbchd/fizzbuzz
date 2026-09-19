@@ -3,6 +3,6 @@
   "private": true,
   "description": "Documentation toolchain, invoked by `go generate ./...`.",
   "devDependencies": {
-    "@redocly/cli": "2.44.2"
+    "@redocly/cli": "2.53.2"
   }
 }
